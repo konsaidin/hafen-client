@@ -92,6 +92,7 @@
 	<pathelement path="lib/ext/lwjgl/lwjgl-opengl-fat.jar" />
 	<pathelement path="lib/ext/steamworks/steamworks4j.jar" />
 	<pathelement path="lib/jglob.jar" />
+	<pathelement path="lib/jinput-2.0.10.jar" />
       </classpath>
       <compilerarg if:set="explicit-annotations" value="-proc:full" />
       <compilerarg value="-Xlint:unchecked" />
@@ -123,7 +124,7 @@
       <fileset dir="build/classes-lib" />
       <manifest>
 	<attribute name="Main-Class" value="haven.MainFrame" />
-	<attribute name="Class-Path" value="jogl-all.jar gluegen-rt.jar lwjgl-fat.jar lwjgl-awt.jar lwjgl-opengl-fat.jar steamworks4j.jar builtin-res.jar hafen-res.jar" />
+	<attribute name="Class-Path" value="jogl-all.jar gluegen-rt.jar lwjgl-fat.jar lwjgl-awt.jar lwjgl-opengl-fat.jar steamworks4j.jar builtin-res.jar hafen-res.jar jinput-2.0.10.jar" />
 	<attribute name="Enable-Native-Access" value="ALL-UNNAMED" />
       </manifest>
     </jar>
@@ -153,6 +154,10 @@
       <fileset dir="lib/ext/lwjgl"><include name="*.jar" /></fileset>
       <fileset dir="lib/ext/steamworks"><include name="*.jar" /></fileset>
     </copy>
+    <copy file="lib/jinput-2.0.10.jar" todir="build" />
+    <copy todir="build/jinput-natives">
+      <fileset dir="lib/jinput-natives"><include name="*.so" /><include name="*.dll" /><include name="*.jnilib" /></fileset>
+    </copy>
     <copy file="local-config.properties" tofile="build/haven-config.properties" failonerror="false" quiet="true" />
   </target>
 
@@ -170,6 +175,10 @@
       <fileset dir="lib/ext/lwjgl"><include name="*.jar" /></fileset>
       <fileset dir="lib/ext/steamworks"><include name="*.jar" /></fileset>
     </copy>
+    <copy file="lib/jinput-2.0.10.jar" todir="bin" />
+    <copy todir="bin/jinput-natives">
+      <fileset dir="lib/jinput-natives"><include name="*.so" /><include name="*.dll" /><include name="*.jnilib" /></fileset>
+    </copy>
     <copy file="etc/ansgar-config.properties" tofile="bin/haven-config.properties" />
     <chmod file="bin/hafen.jar" perm="a+x" />
   </target>
@@ -185,6 +194,7 @@
     </condition>
     <java jar="bin/hafen.jar" fork="true">
       <sysproperty key="sun.java2d.uiScale.enabled" value="false" />
+      <sysproperty key="java.library.path" value="bin/jinput-natives" />
       <sysproperty key="java.net.preferIPv6Addresses" value="system" />
       <jvmarg if:set="jogl-exports" value="--add-exports=java.base/java.lang=ALL-UNNAMED" />
       <jvmarg if:set="jogl-exports" value="--add-exports=java.desktop/sun.awt=ALL-UNNAMED" />

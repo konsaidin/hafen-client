@@ -1,0 +1,154 @@
+package haven.gamepad;
+
+import net.java.games.input.*;
+
+import java.util.logging.Logger;
+
+/**
+ * Polls the first detected gamepad via jinput on a background thread.
+ * Publishes an immutable GamepadState snapshot each tick.
+ * Set java.library.path to include lib/jinput-natives/ before startup.
+ */
+public class GamepadManager {
+    private static final Logger log = Logger.getLogger(GamepadManager.class.getName());
+    private static final long POLL_INTERVAL_MS = 8; // ~120 Hz
+
+    private volatile GamepadState state = GamepadState.EMPTY;
+    private volatile boolean running = false;
+
+    private final GamepadConfig cfg;
+    private Thread pollThread;
+    private Controller activeController;
+
+    // Previous button states for edge detection (press/release events)
+    private volatile GamepadState prevState = GamepadState.EMPTY;
+
+    public GamepadManager(GamepadConfig cfg) {
+	this.cfg = cfg;
+    }
+
+    public void start() {
+	running = true;
+	pollThread = new Thread(this::pollLoop, "GamepadPoller");
+	pollThread.setDaemon(true);
+	pollThread.start();
+    }
+
+    public void stop() {
+	running = false;
+	if(pollThread != null)
+	    pollThread.interrupt();
+    }
+
+    /** Returns the latest snapshot. Never null. */
+    public GamepadState getState() {
+	return state;
+    }
+
+    /** Returns the state from the previous tick (for edge detection). */
+    public GamepadState getPrevState() {
+	return prevState;
+    }
+
+    private void pollLoop() {
+	while(running) {
+	    try {
+		if(activeController == null || !activeController.poll())
+		    activeController = findGamepad();
+
+		if(activeController != null && activeController.poll()) {
+		    prevState = state;
+		    state = readState(activeController);
+		} else {
+		    prevState = state;
+		    state = GamepadState.EMPTY;
+		}
+		Thread.sleep(POLL_INTERVAL_MS);
+	    } catch(InterruptedException e) {
+		Thread.currentThread().interrupt();
+		break;
+	    } catch(Exception e) {
+		log.warning("Gamepad poll error: " + e.getMessage());
+		activeController = null;
+		try { Thread.sleep(1000); } catch(InterruptedException ie) { break; }
+	    }
+	}
+    }
+
+    private Controller findGamepad() {
+	ControllerEnvironment env = ControllerEnvironment.getDefaultEnvironment();
+	for(Controller c : env.getControllers()) {
+	    Controller.Type t = c.getType();
+	    if(t == Controller.Type.GAMEPAD || t == Controller.Type.STICK) {
+		log.info("Gamepad found: " + c.getName());
+		return c;
+	    }
+	}
+	return null;
+    }
+
+    private GamepadState readState(Controller ctrl) {
+	Component[] comps = ctrl.getComponents();
+
+	float lx = 0, ly = 0, rx = 0, ry = 0, l2 = 0, r2 = 0;
+	boolean btnA = false, btnB = false, btnX = false, btnY = false;
+	boolean l1 = false, r1 = false, ls = false, rs = false;
+	boolean dU = false, dD = false, dL = false, dR = false;
+	boolean start = false, select = false;
+
+	for(Component c : comps) {
+	    Component.Identifier id = c.getIdentifier();
+	    float v = c.getPollData();
+
+	    if(id == Component.Identifier.Axis.X)        lx = applyDeadZone(v, cfg.moveDeadZone);
+	    else if(id == Component.Identifier.Axis.Y)   ly = applyDeadZone(v, cfg.moveDeadZone);
+	    else if(id == Component.Identifier.Axis.RX)  rx = applyDeadZone(v, cfg.mouseDeadZone);
+	    else if(id == Component.Identifier.Axis.RY)  ry = applyDeadZone(v, cfg.mouseDeadZone);
+	    else if(id == Component.Identifier.Axis.Z)   l2 = (v + 1f) / 2f; // -1..1 → 0..1
+	    else if(id == Component.Identifier.Axis.RZ)  r2 = (v + 1f) / 2f;
+	    else if(id == Component.Identifier.Button._0) btnA   = v > 0.5f;
+	    else if(id == Component.Identifier.Button._1) btnB   = v > 0.5f;
+	    else if(id == Component.Identifier.Button._2) btnX   = v > 0.5f;
+	    else if(id == Component.Identifier.Button._3) btnY   = v > 0.5f;
+	    else if(id == Component.Identifier.Button._4) l1     = v > 0.5f;
+	    else if(id == Component.Identifier.Button._5) r1     = v > 0.5f;
+	    else if(id == Component.Identifier.Button._6) select = v > 0.5f;
+	    else if(id == Component.Identifier.Button._7) start  = v > 0.5f;
+	    else if(id == Component.Identifier.Button._8) ls     = v > 0.5f;
+	    else if(id == Component.Identifier.Button._9) rs     = v > 0.5f;
+	    else if(id == Component.Identifier.Axis.POV) {
+		// Standard POV hat: 0=centered, 0.125=N, 0.25=NE, 0.375=E, 0.5=SE,
+		//                   0.625=S, 0.75=SW, 0.875=W, 1.0=NW
+		dU = (v == 0.125f || v == 1.0f  || v == 0.25f);
+		dR = (v == 0.25f  || v == 0.375f || v == 0.5f);
+		dD = (v == 0.5f   || v == 0.625f || v == 0.75f);
+		dL = (v == 0.75f  || v == 0.875f || v == 1.0f);
+	    }
+	}
+
+	return new GamepadState(lx, ly, rx, ry, l2, r2,
+	    btnA, btnB, btnX, btnY,
+	    l1, r1, ls, rs,
+	    dU, dD, dL, dR,
+	    start, select,
+	    cfg.triggerThreshold);
+    }
+
+    /** Applies symmetric dead zone and rescales the remaining range to [-1, 1]. */
+    private static float applyDeadZone(float v, float dz) {
+	if(Math.abs(v) < dz)
+	    return 0f;
+	float sign = v > 0 ? 1f : -1f;
+	return sign * ((Math.abs(v) - dz) / (1f - dz));
+    }
+
+    /** Returns true if the button just became pressed this tick. */
+    public boolean justPressed(boolean cur, boolean prev) {
+	return cur && !prev;
+    }
+
+    /** Returns true if the button just became released this tick. */
+    public boolean justReleased(boolean cur, boolean prev) {
+	return !cur && prev;
+    }
+}

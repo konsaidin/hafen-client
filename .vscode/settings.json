@@ -1,0 +1,12 @@
+{
+    "java.project.referencedLibraries": [
+        "lib/jglob.jar",
+        "lib/jinput-2.0.10.jar",
+        "lib/ext/jogl/jogl-all.jar",
+        "lib/ext/jogl/gluegen-rt.jar",
+        "lib/ext/lwjgl/lwjgl-fat.jar",
+        "lib/ext/lwjgl/lwjgl-awt.jar",
+        "lib/ext/lwjgl/lwjgl-opengl-fat.jar"
+    ],
+    "java.project.sourcePaths": ["src"]
+}

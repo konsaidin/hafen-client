@@ -104,6 +104,11 @@ public class MapView extends PView implements DTarget, Console.Directory {
 	public abstract float angle();
 	public abstract void tick(double dt);
 
+	/** Gamepad: rotate camera by delta angle/elevation. No-op in cameras that don't support it. */
+	public void gpRotate(float dAngl, float dElev) {}
+	/** Gamepad: reset horizontal angle to north. */
+	public void gpResetAngle() {}
+
 	public String stats() {return("N/A");}
     }
     
@@ -192,16 +197,29 @@ public class MapView extends PView implements DTarget, Console.Directory {
 	    return(angl);
 	}
 	
-	private static final float maxang = (float)(Math.PI / 2 - 0.1);
+	// Elevation limits: min keeps camera above ground, max allows near-overhead view.
+	private static final float minelev = (float)(Math.PI / 16.0); // ~11 deg
+	private static final float maxelev = (float)(Math.PI / 2.0 - 0.01);
 	private static final float mindist = 50.0f;
 	public boolean wheel(Coord c, int amount) {
 	    float fe = telev;
 	    telev += amount * telev * 0.02f;
-	    if(telev > maxang)
-		telev = maxang;
-	    if(dist(telev) < mindist)
-		telev = fe;
+	    if(telev > maxelev) telev = maxelev;
+	    if(telev < minelev) telev = minelev;
+	    if(dist(telev) < mindist) telev = fe;
 	    return(true);
+	}
+
+	/** Rotate camera by gamepad right stick (called from GameUI tick). */
+	public void gpRotate(float dAngl, float dElev) {
+	    tangl += dAngl;
+	    tangl = tangl % ((float)(Math.PI * 2.0));
+	    telev = Math.max(minelev, Math.min(maxelev, telev + dElev));
+	}
+
+	/** Reset camera angle to north (RS click). */
+	public void gpResetAngle() {
+	    tangl = 0.0f;
 	}
 
 	public String stats() {

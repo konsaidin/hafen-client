@@ -32,6 +32,8 @@ import java.awt.Color;
 import java.awt.event.KeyEvent;
 import java.awt.image.WritableRaster;
 import haven.render.Location;
+import haven.gamepad.GamepadConfig;
+import haven.gamepad.GamepadDispatcher;
 import static haven.Inventory.invsq;
 import static haven.PType.*;
 
@@ -70,6 +72,7 @@ public class GameUI extends ConsoleHost implements Console.Directory, UI.Notice.
     public Belt beltwdg;
     public final Map<Integer, String> polowners = new HashMap<Integer, String>();
     public Bufflist buffs;
+    private GamepadDispatcher gamepad;
 
     public static abstract class BeltSlot {
 	public final int idx;
@@ -365,6 +368,7 @@ public class GameUI extends ConsoleHost implements Console.Directory, UI.Notice.
 
 	if(reset)
 	    resetui();
+	gamepad = new GamepadDispatcher(this, GamepadConfig.load());
     }
 
     private void foldbuttons() {
@@ -1214,6 +1218,12 @@ public class GameUI extends ConsoleHost implements Console.Directory, UI.Notice.
 	    afk = false;
 	}
 	mapfiletick();
+	if(gamepad != null) gamepad.tick(dt);
+    }
+
+    public void destroy() {
+	if(gamepad != null) { gamepad.dispose(); gamepad = null; }
+	super.destroy();
     }
     
     public void uimsg(String msg, Object... args) {
