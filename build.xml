@@ -181,6 +181,9 @@
     </copy>
     <copy file="etc/ansgar-config.properties" tofile="bin/haven-config.properties" />
     <chmod file="bin/hafen.jar" perm="a+x" />
+    <chmod perm="a+rx">
+      <fileset dir="bin/jinput-natives"><include name="*.so" /><include name="*.jnilib" /></fileset>
+    </chmod>
   </target>
 
   <target name="deftgt" depends="jars, bin" />

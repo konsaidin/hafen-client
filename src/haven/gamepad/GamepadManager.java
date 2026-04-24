@@ -45,6 +45,11 @@ public class GamepadManager {
 	return state;
     }
 
+    /** True when a gamepad is currently detected and sending input. */
+    public boolean isConnected() {
+	return state != GamepadState.EMPTY;
+    }
+
     /** Returns the state from the previous tick (for edge detection). */
     public GamepadState getPrevState() {
 	return prevState;
@@ -71,6 +76,12 @@ public class GamepadManager {
 		log.warning("Gamepad poll error: " + e.getMessage());
 		activeController = null;
 		try { Thread.sleep(1000); } catch(InterruptedException ie) { break; }
+	    } catch(Error e) {
+		// jinput native init failure (UnsatisfiedLinkError, NoClassDefFoundError, etc.)
+		// — gamepad unavailable, abort poll loop rather than spamming the log
+		log.warning("Gamepad unavailable: " + e);
+		state = GamepadState.EMPTY;
+		return;
 	    }
 	}
     }
@@ -81,10 +92,24 @@ public class GamepadManager {
 	    Controller.Type t = c.getType();
 	    if(t == Controller.Type.GAMEPAD || t == Controller.Type.STICK) {
 		log.info("Gamepad found: " + c.getName());
+		logComponents(c);
 		return c;
 	    }
 	}
 	return null;
+    }
+
+    private void logComponents(Controller c) {
+	StringBuilder sb = new StringBuilder("Gamepad components:\n");
+	int btnIdx = 0;
+	for(Component comp : c.getComponents()) {
+	    Component.Identifier id = comp.getIdentifier();
+	    String label = (id instanceof Component.Identifier.Button)
+		? "Button._" + (btnIdx++)
+		: id.toString();
+	    sb.append("  ").append(label).append(" -> ").append(comp.getName()).append("\n");
+	}
+	log.info(sb.toString());
     }
 
     private GamepadState readState(Controller ctrl) {

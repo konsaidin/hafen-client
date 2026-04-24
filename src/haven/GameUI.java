@@ -1065,6 +1065,8 @@ public class GameUI extends ConsoleHost implements Console.Directory, UI.Notice.
     public void draw(GOut g) {
 	beltwdg.c = new Coord(chat.c.x, Math.min(chat.c.y - beltwdg.sz.y, sz.y - beltwdg.sz.y));
 	super.draw(g);
+	if(gamepad != null && map != null)
+	    gamepad.drawOverlay(g, map);
 	int by = sz.y;
 	if(chat.visible())
 	    by = Math.min(by, chat.c.y);

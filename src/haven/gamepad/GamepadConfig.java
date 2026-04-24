@@ -30,7 +30,7 @@ public class GamepadConfig {
     /** Hold duration in ms before R1 opens RadialPicker instead of smart-clicking. */
     public long  r1HoldMs = 350;
 
-    // Combat mode
+    // Combat mode — set automatically from Fightview.lsrel in GamepadDispatcher.tick()
     public boolean combatMode = false;
 
     public static GamepadConfig load() {

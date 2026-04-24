@@ -63,12 +63,9 @@ public class DirectMovement {
 	float stickX = state.lx;
 	float stickY = state.ly;
 
-	// Rotate stick into world XY.
-	// Camera is positioned at angle camAngle from the player (in GL space, Y inverted).
-	// Forward in world space = (-cosA,  sinA), right = (sinA, cosA).
-	// Stick-up (ly=-1) → forward; stick-right (lx=+1) → right.
-	float worldDx = stickX * sinA - stickY * cosA;
-	float worldDy = stickX * cosA + stickY * sinA;
+	// DualSense: ly positive-up (inverted), lx positive-right also inverted.
+	float worldDx = (-stickX) * sinA - (-stickY) * cosA;
+	float worldDy = (-stickX) * cosA + (-stickY) * sinA;
 
 	// Normalise so diagonal doesn't move faster
 	float mag = (float) Math.sqrt(worldDx * worldDx + worldDy * worldDy);

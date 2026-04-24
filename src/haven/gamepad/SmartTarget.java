@@ -85,34 +85,36 @@ public class SmartTarget {
 
 	// Collect vehicle positions to detect bags near them
 	List<Coord2d> vehiclePositions = new ArrayList<>();
-	for(Gob g : oc) {
-	    String rn = resName(g);
-	    if(rn != null && rn.contains("vehicle"))
-		vehiclePositions.add(g.rc);
-	}
+	synchronized(oc) {
+	    for(Gob g : oc) {
+		String rn = resName(g);
+		if(rn != null && rn.contains("vehicle"))
+		    vehiclePositions.add(g.rc);
+	    }
 
-	for(Gob g : oc) {
-	    if(g == player) continue;
-	    double dx = g.rc.x - playerPos.x;
-	    double dy = g.rc.y - playerPos.y;
-	    double dist = Math.sqrt(dx * dx + dy * dy);
-	    if(dist > maxDist || dist < 0.5)
-		continue;
+	    for(Gob g : oc) {
+		if(g == player) continue;
+		double dx = g.rc.x - playerPos.x;
+		double dy = g.rc.y - playerPos.y;
+		double dist = Math.sqrt(dx * dx + dy * dy);
+		if(dist > maxDist || dist < 0.5)
+		    continue;
 
-	    // Cone check
-	    float gobAngle = (float) Math.atan2(dy, dx);
-	    float angleDiff = angleDiff(gobAngle, gazeAngle);
-	    if(Math.abs(angleDiff) > coneHalfRad)
-		continue;
+		// Cone check
+		float gobAngle = (float) Math.atan2(dy, dx);
+		float angleDiff = angleDiff(gobAngle, gazeAngle);
+		if(Math.abs(angleDiff) > coneHalfRad)
+		    continue;
 
-	    String rn = resName(g);
-	    int prio = priority(rn, g.rc, vehiclePositions, cfg.combatMode, combatLockId, g.id);
-	    if(prio < 0) continue; // ignored
+		String rn = resName(g);
+		int prio = priority(rn, g.rc, vehiclePositions, cfg.combatMode, combatLockId, g.id);
+		if(prio < 0) continue; // ignored
 
-	    result.add(new Entry(g, prio, dist, rn != null ? rn : ""));
+		result.add(new Entry(g, prio, dist, rn != null ? rn : ""));
 
-	    if(result.size() >= maxResults * 4) // over-collect then trim
-		break;
+		if(result.size() >= maxResults * 4) // over-collect then trim
+		    break;
+	    }
 	}
 
 	result.sort((a, b) -> {

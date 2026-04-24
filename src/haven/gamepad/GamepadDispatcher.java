@@ -2,6 +2,7 @@ package haven.gamepad;
 
 import haven.*;
 
+import java.awt.Color;
 import java.util.List;
 
 import static haven.OCache.posres;
@@ -38,11 +39,18 @@ public class GamepadDispatcher {
     private boolean radialOpen = false;
     private RadialPicker currentPicker = null;
 
-    // L1 edge detection
-    private boolean prevL1 = false;
-
     // RS click edge detection (camera reset)
     private boolean prevRs = false;
+
+    // L1 edge detection (LMB)
+    private boolean prevL1 = false;
+
+    // Current best target for the frame (used by drawOverlay)
+    private volatile Gob hoverGob = null;
+
+    private int debugTick = 0;
+    private Text debugText = null;
+    private String debugLast = "";
 
     public GamepadDispatcher(GameUI gui, GamepadConfig cfg) {
 	this.gui = gui;
@@ -57,6 +65,80 @@ public class GamepadDispatcher {
 	manager.stop();
     }
 
+    /**
+     * Called from GameUI.draw() to render 2D gamepad overlays on top of the scene:
+     *  - A target ring around the current best SmartTarget candidate
+     *  - A COMBAT MODE badge when combat mode is active
+     */
+    public void drawOverlay(GOut g, MapView map) {
+	drawTargetRing(g, map);
+	drawHUDBadges(g);
+    }
+
+    private static final Text combatText  = Text.render("⚔ COMBAT");
+    private static final Text gamepadText = Text.render("⌖ GAMEPAD");
+
+    private void drawHUDBadges(GOut g) {
+	int x = UI.scale(8);
+	int y = UI.scale(8);
+	int pad = UI.scale(4);
+	if(manager.isConnected()) {
+	    Coord ts = gamepadText.sz();
+	    g.chcolor(new Color(0, 0, 0, 160));
+	    g.frect(new Coord(x - pad, y - pad / 2), ts.add(pad * 2, pad));
+	    g.chcolor(new Color(120, 200, 120, 230));
+	    g.image(gamepadText.tex(), new Coord(x, y));
+	    y += ts.y + pad;
+
+	    // Debug HUD: raw axis/button state
+	    GamepadState s = manager.getState();
+	    String dbg = String.format("L1:%d R1:%d L2:%.2f RX:%.2f RY:%.2f",
+		s.l1 ? 1 : 0, s.r1 ? 1 : 0, s.l2, s.rx, s.ry);
+	    if(!dbg.equals(debugLast)) {
+		debugText = Text.render(dbg);
+		debugLast = dbg;
+	    }
+	    if(debugText != null) {
+		Coord ds = debugText.sz();
+		g.chcolor(new Color(0, 0, 0, 160));
+		g.frect(new Coord(x - pad, y - pad / 2), ds.add(pad * 2, pad));
+		g.chcolor(new Color(200, 200, 80, 230));
+		g.image(debugText.tex(), new Coord(x, y));
+		y += ds.y + pad;
+	    }
+	}
+	if(cfg.combatMode) {
+	    Coord ts = combatText.sz();
+	    g.chcolor(new Color(0, 0, 0, 160));
+	    g.frect(new Coord(x - pad, y - pad / 2), ts.add(pad * 2, pad));
+	    g.chcolor(new Color(220, 60, 60, 230));
+	    g.image(combatText.tex(), new Coord(x, y));
+	}
+	g.chcolor();
+    }
+
+    private static final int RING_R = UI.scale(20);
+    private static final int RING_SEGS = 16;
+
+    private void drawTargetRing(GOut g, MapView map) {
+	Gob gob = hoverGob;
+	if(gob == null) return;
+	Coord3f scr = map.screenxf(gob.rc);
+	if(scr == null) return;
+	Coord center = new Coord((int) scr.x, (int) scr.y);
+
+	g.chcolor(new Color(80, 220, 255, 200));
+	double step = 2 * Math.PI / RING_SEGS;
+	for(int i = 0; i < RING_SEGS; i++) {
+	    double a0 = i * step;
+	    double a1 = (i + 1) * step;
+	    Coord p0 = center.add((int)(Math.cos(a0) * RING_R), (int)(Math.sin(a0) * RING_R));
+	    Coord p1 = center.add((int)(Math.cos(a1) * RING_R), (int)(Math.sin(a1) * RING_R));
+	    g.line(p0, p1, 2.0);
+	}
+	g.chcolor();
+    }
+
     /** Called from GameUI.tick(). */
     public void tick(double dt) {
 	MapView map = gui.map;
@@ -65,14 +147,21 @@ public class GamepadDispatcher {
 	GamepadState cur  = manager.getState();
 	GamepadState prev = manager.getPrevState();
 
+	// Debug: dump raw state every ~2 seconds so we can diagnose button/axis mapping
+	if(manager.isConnected() && ++debugTick % 120 == 0) {
+	    System.err.printf("[GP] l1=%b r1=%b l2=%.2f r2=%.2f rx=%.2f ry=%.2f l2h=%b A=%b B=%b X=%b Y=%b%n",
+		cur.l1, cur.r1, cur.l2, cur.r2, cur.rx, cur.ry, cur.l2Held,
+		cur.btnA, cur.btnB, cur.btnX, cur.btnY);
+	}
+
 	// --- Left stick: direct movement ---
 	if(cur.lsActive(cfg.moveDeadZone)) {
 	    movement.tick(map, cur);
 	    // Track gaze direction for smart target — same rotation math as DirectMovement
 	    float camA = map.camera.angle();
 	    float sinA = (float) Math.sin(camA), cosA = (float) Math.cos(camA);
-	    float wdx = cur.lx * sinA - cur.ly * cosA;
-	    float wdy = cur.lx * cosA + cur.ly * sinA;
+	    float wdx = cur.lx * sinA + cur.ly * cosA;
+	    float wdy = cur.lx * cosA - cur.ly * sinA;
 	    target.updateGaze(wdx, wdy);
 	}
 
@@ -96,9 +185,16 @@ public class GamepadDispatcher {
 	    map.camera.gpResetAngle();
 	prevRs = cur.rs;
 
-	// --- L1: toggle combat mode ---
+	// --- Combat mode: mirror server state from Fightview ---
+	cfg.combatMode = (gui.fv != null && !gui.fv.lsrel.isEmpty());
+
+	// --- L1: left mouse button ---
 	if(cur.l1 && !prevL1) {
-	    cfg.combatMode = !cfg.combatMode;
+	    System.err.println("[GP] L1 down → LMB");
+	    emulateMouseButton(1, true);
+	} else if(!cur.l1 && prevL1) {
+	    System.err.println("[GP] L1 up → LMB release");
+	    emulateMouseButton(1, false);
 	}
 	prevL1 = cur.l1;
 
@@ -108,6 +204,15 @@ public class GamepadDispatcher {
 	// ABXY belt hotbar — suppressed while radial picker is open
 	if(!radialOpen)
 	    dispatchBelt(cur, prev, map);
+
+	// Update hover target for overlay drawing
+	Gob player = map.player();
+	if(player != null && !radialOpen) {
+	    SmartTarget.Entry best = target.best(map, player);
+	    hoverGob = (best != null) ? best.gob : null;
+	} else if(radialOpen) {
+	    hoverGob = null;
+	}
     }
 
     // -------------------------------------------------------------------------
@@ -138,6 +243,7 @@ public class GamepadDispatcher {
 
 	if(r1 && !r1Prev) {
 	    // Press: start timer
+	    System.err.println("[GP] R1 pressed");
 	    r1PressTime = System.currentTimeMillis();
 	    r1WasHeld = false;
 	}
@@ -176,10 +282,18 @@ public class GamepadDispatcher {
 
     private void smartClick(MapView map) {
 	Gob player = map.player();
-	if(player == null) return;
+	if(player == null) {
+	    // Fallback: right-click at cursor position
+	    rightClickAtCursor();
+	    return;
+	}
 
 	List<SmartTarget.Entry> hits = target.scan(map, player, 8);
-	if(hits.isEmpty()) return;
+	if(hits.isEmpty()) {
+	    // No target in cone — fall back to cursor right-click
+	    rightClickAtCursor();
+	    return;
+	}
 
 	// If multiple entries share the top priority, open picker; else click best
 	SmartTarget.Entry best = hits.get(0);
@@ -252,5 +366,26 @@ public class GamepadDispatcher {
 	// Update tracked mouse position and dispatch a synthetic move event
 	ui.mc = nc;
 	ui.dispatch(ui.root, new Widget.MouseMoveEvent(nc));
+    }
+
+    private void emulateMouseButton(int btn, boolean down) {
+	UI ui = gui.ui;
+	if(ui == null) return;
+	Coord mc = ui.mc;
+	if(down) {
+	    ui.lcc = mc;
+	    ui.dispatch(ui.root, new Widget.MouseDownEvent(mc, btn));
+	} else {
+	    ui.dispatch(ui.root, new Widget.MouseUpEvent(mc, btn));
+	}
+    }
+
+    private void rightClickAtCursor() {
+	UI ui = gui.ui;
+	if(ui == null) return;
+	Coord mc = ui.mc;
+	ui.lcc = mc;
+	ui.dispatch(ui.root, new Widget.MouseDownEvent(mc, 3));
+	ui.dispatch(ui.root, new Widget.MouseUpEvent(mc, 3));
     }
 }
