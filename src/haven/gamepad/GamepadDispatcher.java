@@ -68,20 +68,21 @@ public class GamepadDispatcher {
 	// --- Left stick: direct movement ---
 	if(cur.lsActive(cfg.moveDeadZone)) {
 	    movement.tick(map, cur);
-	    // Track gaze direction for smart target
+	    // Track gaze direction for smart target — same rotation math as DirectMovement
 	    float camA = map.camera.angle();
 	    float sinA = (float) Math.sin(camA), cosA = (float) Math.cos(camA);
-	    float wdx =  cur.lx * sinA + cur.ly * cosA;
-	    float wdy = -cur.lx * cosA + cur.ly * sinA;
+	    float wdx = cur.lx * sinA - cur.ly * cosA;
+	    float wdy = cur.lx * cosA + cur.ly * sinA;
 	    target.updateGaze(wdx, wdy);
 	}
 
 	// --- Right stick: camera rotation (L2 held) or mouse emulation ---
 	if(cur.l2Held) {
 	    if(cur.rsActive(cfg.mouseDeadZone)) {
+		// stick-right rotates; stick-up tilts more overhead (negative dElev)
 		map.camera.gpRotate(
 		    cur.rx * cfg.camRotSensX,
-		    cur.ry * cfg.camRotSensY
+		    -cur.ry * cfg.camRotSensY
 		);
 	    }
 	} else {
@@ -101,11 +102,12 @@ public class GamepadDispatcher {
 	}
 	prevL1 = cur.l1;
 
-	// --- ABXY: hotbar slots 1-4 / 5-8 ---
-	dispatchBelt(cur, prev, map);
-
-	// --- R1: smart target or radial picker ---
+	// R1 / picker first so B-to-cancel is consumed before belt can fire
 	dispatchR1(cur, prev, map);
+
+	// ABXY belt hotbar — suppressed while radial picker is open
+	if(!radialOpen)
+	    dispatchBelt(cur, prev, map);
     }
 
     // -------------------------------------------------------------------------

@@ -45,7 +45,8 @@ public class RadialPicker extends Widget {
 
     @Override
     protected void added() {
-	// ui is available here (set by Widget.add before calling added())
+	// Occupy the full parent so mouse-grab covers the whole view
+	resize(parent.sz);
 	mg = ui.grabmouse(this);
 	kg = ui.grabkeys(this);
 	animateOpen();
@@ -121,7 +122,7 @@ public class RadialPicker extends Widget {
 	    g.line(from, to, 1);
 	}
 	g.chcolor();
-	super.draw(g);
+	super.draw(g, false); // no clipping — petals extend beyond widget's sz
     }
 
     @Override
