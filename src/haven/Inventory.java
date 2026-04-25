@@ -107,7 +107,7 @@ public class Inventory extends Widget implements DTarget {
 	Coord slotPos = new Coord(gpX, gpY).mul(sqsz).add(1, 1);
 	for(WItem wi : wmap.values()) {
 	    if(wi.c.equals(slotPos)) {
-		wi.item.wdgmsg("iact", wi.sz.div(2), 0);
+		wi.item.wdgmsg("take", wi.sz.div(2));  // LMB: pick up item into cursor
 		return;
 	    }
 	}

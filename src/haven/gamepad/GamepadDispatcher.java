@@ -3,9 +3,8 @@ package haven.gamepad;
 import haven.*;
 
 import java.awt.Color;
-import java.util.HashSet;
+import java.awt.event.KeyEvent;
 import java.util.List;
-import java.util.Set;
 
 import static haven.OCache.posres;
 
@@ -67,7 +66,6 @@ public class GamepadDispatcher {
 
     // Window focus tracking for D-pad navigation
     private Window gpFocusedWindow = null;
-    private final Set<Window> knownWindows = new HashSet<>();
 
 
     public GamepadDispatcher(GameUI gui, GamepadConfig cfg) {
@@ -118,48 +116,62 @@ public class GamepadDispatcher {
 	g.chcolor();
     }
 
-    private static final int ARROW_W      = UI.scale(12);
-    private static final int ARROW_H      = UI.scale(10);
-    private static final int ARROW_OFFSET = UI.scale(28);
-    private static final int ARROW_STEM   = UI.scale(6);
+    private Resource handCurs = null;
+    private Text.Line hoverNameText = null;
+    private String hoverNameLast = "";
 
-    private Text hoverGobNameText = null;
-    private String hoverGobNameLast = "";
+    private Resource handCurs() {
+	if(handCurs == null)
+	    handCurs = Resource.local().loadwait("gfx/hud/curs/hand");
+	return handCurs;
+    }
 
     private void drawTargetIndicator(GOut g, MapView map) {
 	Gob gob = hoverGob;
 	if(gob == null) return;
 	Coord3f scr = map.screenxf(gob.rc);
 	if(scr == null) return;
-	int cx  = (int)scr.x;
-	int tipY  = (int)scr.y - ARROW_OFFSET;         // arrow tip (pointing down, toward gob)
-	int baseY = tipY - ARROW_H;                     // flat top of triangle
-	int stemY = baseY - ARROW_STEM;                 // top of stem
 
-	g.chcolor(new Color(80, 220, 255, 220));
-	g.line(new Coord(cx, stemY), new Coord(cx, baseY), 2.0);                                 // stem
-	g.line(new Coord(cx - ARROW_W/2, baseY), new Coord(cx, tipY), 2.0);                     // left side
-	g.line(new Coord(cx + ARROW_W/2, baseY), new Coord(cx, tipY), 2.0);                     // right side
-	g.line(new Coord(cx - ARROW_W/2, baseY), new Coord(cx + ARROW_W/2, baseY), 2.0);        // base
+	Resource curs = handCurs();
+	Resource.Image imgLayer = curs.layer(Resource.imgc);
+	Resource.Neg   negLayer = curs.layer(Resource.negc);
+	if(imgLayer == null) return;
 
-	// Name label above the indicator
+	Tex cursTeX   = imgLayer.tex();
+	Coord hotspot = (negLayer != null) ? UI.scale(negLayer.cc) : Coord.z;
+
+	// Draw cursor so its hotspot tip is just above the gob
+	int cx = (int)scr.x;
+	int cy = (int)scr.y - UI.scale(8);
+	Coord drawPos = new Coord(cx - hotspot.x, cy - hotspot.y);
+	g.image(cursTeX, drawPos);
+
+	// Name label with FlowerMenu petal style
 	String resName = SmartTarget.resName(gob);
 	String displayName = gobDisplayName(resName);
-	if(displayName != null) {
-	    if(!displayName.equals(hoverGobNameLast)) {
-		hoverGobNameText = Text.render(displayName);
-		hoverGobNameLast = displayName;
-	    }
-	    if(hoverGobNameText != null) {
-		Coord ns = hoverGobNameText.sz();
-		Coord np = new Coord(cx - ns.x / 2, stemY - ns.y - UI.scale(2));
-		g.chcolor(new Color(0, 0, 0, 160));
-		g.frect(np.sub(UI.scale(3), UI.scale(2)), ns.add(UI.scale(6), UI.scale(4)));
-		g.chcolor(new Color(80, 220, 255, 220));
-		g.image(hoverGobNameText.tex(), np);
-	    }
+	if(displayName == null) return;
+	if(!displayName.equals(hoverNameLast)) {
+	    hoverNameText = FlowerMenu.ptf.render(displayName, FlowerMenu.ptc);
+	    hoverNameLast = displayName;
 	}
+	if(hoverNameText == null) return;
+
+	Coord ns = hoverNameText.sz();
+	int padX = UI.scale(12), padY = UI.scale(6);
+	Coord labelSz = ns.add(padX * 2, padY * 2);
+	// Label sits to the right of the cursor, vertically centered on the hotspot
+	Coord labelPos = new Coord(drawPos.x + cursTeX.sz().x + UI.scale(4), cy - labelSz.y / 2);
+
+	// Tiled background (same as FlowerMenu petal)
+	g.chcolor(new Color(255, 255, 255, 210));
+	Coord bgTL = labelPos.add(3, 3);
+	Coord bgBR = labelPos.add(labelSz).sub(3, 3);
+	g.image(FlowerMenu.pbg, bgTL, bgTL, bgBR, UI.scale(FlowerMenu.pbg.sz()));
+	// Window-style border
+	FlowerMenu.pbox.draw(g, labelPos, labelSz);
+	// Text
 	g.chcolor();
+	g.image(hoverNameText.tex(), labelPos.add(labelSz.div(2)).sub(ns.div(2)));
     }
 
     private static String gobDisplayName(String resName) {
@@ -177,16 +189,11 @@ public class GamepadDispatcher {
 	GamepadState cur  = manager.getState();
 	GamepadState prev = manager.getPrevState();
 
-	// --- Track newly opened server Windows; last added becomes D-pad focus ---
-	for(Widget w = gui.child; w != null; w = w.next) {
-	    if(w instanceof Window && !knownWindows.contains(w)) {
-		Window wnd = (Window)w;
-		knownWindows.add(wnd);
-		gpFocusedWindow = wnd;
-	    }
-	}
-	knownWindows.removeIf(w -> w.parent == null);
-	if(gpFocusedWindow != null && gpFocusedWindow.parent == null)
+	// --- Window D-pad focus: follow gui.focused; retain last visible window ---
+	Widget guiFoc = gui.focused;
+	if(guiFoc instanceof Window && ((Window)guiFoc).visible())
+	    gpFocusedWindow = (Window)guiFoc;
+	else if(gpFocusedWindow != null && !gpFocusedWindow.visible())
 	    gpFocusedWindow = null;
 	boolean wndFocused = gpFocusedWindow != null;
 
@@ -247,10 +254,17 @@ public class GamepadDispatcher {
 	    }
 	}
 
-	// --- RS click: reset camera angle to north (not while any menu open) ---
-	if(!flowerOpen && !interfaceOpen && cur.rs && !prevRs)
-	    map.camera.gpResetAngle();
+	// --- RS click: reset camera (open world) or scroll down (menu/window) ---
+	// --- LS click: scroll up ---
+	if(cur.rs && !prevRs) {
+	    if(wndFocused || gpMenuMode)
+		scrollAtMouse(3);
+	    else if(!flowerOpen && !interfaceOpen)
+		map.camera.gpResetAngle();
+	}
 	prevRs = cur.rs;
+	if(cur.ls && !prev.ls)
+	    scrollAtMouse(-3);
 
 	// --- Combat mode: mirror server state from Fightview ---
 	cfg.combatMode = (gui.fv != null && !gui.fv.lsrel.isEmpty());
@@ -262,7 +276,17 @@ public class GamepadDispatcher {
 	    emulateMouseButton(1, false);
 	prevL1 = cur.l1;
 
-	// --- Select: confirm inventory slot or MenuGrid ---
+	// --- Start: ESC — directly closes focused window; falls back to key dispatch ---
+	if(cur.start && !prev.start) {
+	    if(wndFocused) {
+		gpFocusedWindow.reqclose();
+		gpFocusedWindow = null;
+	    } else {
+		dispatchKey(KeyEvent.VK_ESCAPE);
+	    }
+	}
+
+	// --- Select: confirm inventory slot (LMB take) or MenuGrid ---
 	if(cur.select && !prevSelect) {
 	    if(wndFocused) {
 		Inventory inv = findChild(gpFocusedWindow, Inventory.class);
@@ -312,12 +336,8 @@ public class GamepadDispatcher {
 		    else if(dLeft)  inv.gpMove(-1, 0);
 		    else if(dRight) inv.gpMove( 1, 0);
 		} else {
-		    // Scroll window content at its center
-		    int scroll = dUp ? -3 : dDown ? 3 : 0;
-		    if(scroll != 0) {
-			Coord wc = absolutePos(gpFocusedWindow).add(gpFocusedWindow.sz.div(2));
-			gui.ui.dispatch(gui.ui.root, new Widget.MouseWheelEvent(wc, scroll));
-		    }
+		    if(dUp)        scrollAtMouse(-3);
+		    else if(dDown) scrollAtMouse( 3);
 		}
 	    } else if(gui.menu != null) {
 		// if/else if: ignore diagonals (POV hat can briefly report diagonal on press)
@@ -352,8 +372,13 @@ public class GamepadDispatcher {
 	// R1 / picker (B-cancel handled inside, before belt can steal it)
 	dispatchR1(cur, prev, map);
 
-	// ABXY belt hotbar — suppressed in any menu mode
-	if(!radialOpen && !flowerOpen && !interfaceOpen && !gpMenuMode)
+	// When a window is focused: A=ENTER (override hotbar)
+	if(wndFocused) {
+	    if(cur.btnA && !prev.btnA) dispatchKey(KeyEvent.VK_ENTER);
+	}
+
+	// ABXY belt hotbar — suppressed in any menu mode or focused window
+	if(!radialOpen && !flowerOpen && !interfaceOpen && !gpMenuMode && !wndFocused)
 	    dispatchBelt(cur, prev, map);
 
 	// Update hover target for overlay drawing.
@@ -560,6 +585,32 @@ public class GamepadDispatcher {
     // -------------------------------------------------------------------------
     // Widget utilities
 
+    // Dummy AWT component required as source for synthetic KeyEvents.
+    private final java.awt.Label dummyComp = new java.awt.Label();
+
+    /**
+     * Dispatches a synthetic key exactly as UI.keydown does:
+     * KeyDownEvent first; if not consumed, GlobKeyEvent (global hotkeys like craft buttons).
+     */
+    private void dispatchKey(int keyCode) {
+	UI ui = gui.ui;
+	if(ui == null) return;
+	KeyEvent kd = new KeyEvent(dummyComp, KeyEvent.KEY_PRESSED,
+	    System.currentTimeMillis(), 0, keyCode, KeyEvent.CHAR_UNDEFINED);
+	KeyEvent ku = new KeyEvent(dummyComp, KeyEvent.KEY_RELEASED,
+	    System.currentTimeMillis(), 0, keyCode, KeyEvent.CHAR_UNDEFINED);
+	if(!ui.dispatch(ui.root, new Widget.KeyDownEvent(kd)))
+	    ui.dispatch(ui.root, new Widget.GlobKeyEvent(kd));
+	ui.dispatch(ui.root, new Widget.KeyUpEvent(ku));
+    }
+
+    /** Dispatches a scroll-wheel event at the current mouse cursor position. */
+    private void scrollAtMouse(int amount) {
+	UI ui = gui.ui;
+	if(ui == null) return;
+	ui.dispatch(ui.root, new Widget.MouseWheelEvent(ui.mc, amount));
+    }
+
     /** Recursively finds the first child widget of the given class. */
     @SuppressWarnings("unchecked")
     private static <T extends Widget> T findChild(Widget root, Class<T> cls) {
@@ -571,11 +622,4 @@ public class GamepadDispatcher {
 	return null;
     }
 
-    /** Returns the absolute screen position of a widget by summing parent offsets. */
-    private static Coord absolutePos(Widget w) {
-	Coord c = Coord.z;
-	for(Widget p = w; p != null; p = p.parent)
-	    c = c.add(p.c);
-	return c;
-    }
 }
