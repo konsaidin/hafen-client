@@ -45,12 +45,19 @@ public class GamepadDispatcher {
     // L1 edge detection (LMB)
     private boolean prevL1 = false;
 
+    // R2 edge detection (interface menu)
+    private boolean prevR2 = false;
+    private InterfaceMenu interfaceMenu = null;
+    private boolean interfaceMenuOpen = false;
+
+    // D-pad menu-grid mode: active when D-pad last navigated MenuGrid
+    private boolean gpMenuMode = false;
+
     // Current best target for the frame (used by drawOverlay)
     private volatile Gob hoverGob = null;
+    private Gob lastHoverGob = null;
+    private long lastHoverTime = 0;
 
-    private int debugTick = 0;
-    private Text debugText = null;
-    private String debugLast = "";
 
     public GamepadDispatcher(GameUI gui, GamepadConfig cfg) {
 	this.gui = gui;
@@ -78,6 +85,9 @@ public class GamepadDispatcher {
     private static final Text combatText  = Text.render("⚔ COMBAT");
     private static final Text gamepadText = Text.render("⌖ GAMEPAD");
 
+    private Text rsDebugText = null;
+    private String rsDebugLast = "";
+
     private void drawHUDBadges(GOut g) {
 	int x = UI.scale(8);
 	int y = UI.scale(8);
@@ -90,20 +100,21 @@ public class GamepadDispatcher {
 	    g.image(gamepadText.tex(), new Coord(x, y));
 	    y += ts.y + pad;
 
-	    // Debug HUD: raw axis/button state
+	    // RS diagnostic: confirm axis values and camera type
 	    GamepadState s = manager.getState();
-	    String dbg = String.format("L1:%d R1:%d L2:%.2f RX:%.2f RY:%.2f",
-		s.l1 ? 1 : 0, s.r1 ? 1 : 0, s.l2, s.rx, s.ry);
-	    if(!dbg.equals(debugLast)) {
-		debugText = Text.render(dbg);
-		debugLast = dbg;
+	    MapView mv = gui.map;
+	    String camName = (mv != null) ? mv.camera.getClass().getSimpleName() : "?";
+	    String rsStr = String.format("RS %.2f %.2f cam=%s", s.rx, s.ry, camName);
+	    if(!rsStr.equals(rsDebugLast)) {
+		rsDebugText = Text.render(rsStr);
+		rsDebugLast = rsStr;
 	    }
-	    if(debugText != null) {
-		Coord ds = debugText.sz();
-		g.chcolor(new Color(0, 0, 0, 160));
+	    if(rsDebugText != null) {
+		Coord ds = rsDebugText.sz();
+		g.chcolor(new Color(0, 0, 0, 140));
 		g.frect(new Coord(x - pad, y - pad / 2), ds.add(pad * 2, pad));
-		g.chcolor(new Color(200, 200, 80, 230));
-		g.image(debugText.tex(), new Coord(x, y));
+		g.chcolor(new Color(180, 180, 80, 220));
+		g.image(rsDebugText.tex(), new Coord(x, y));
 		y += ds.y + pad;
 	    }
 	}
@@ -147,26 +158,47 @@ public class GamepadDispatcher {
 	GamepadState cur  = manager.getState();
 	GamepadState prev = manager.getPrevState();
 
-	// Debug: dump raw state every ~2 seconds so we can diagnose button/axis mapping
-	if(manager.isConnected() && ++debugTick % 120 == 0) {
-	    System.err.printf("[GP] l1=%b r1=%b l2=%.2f r2=%.2f rx=%.2f ry=%.2f l2h=%b A=%b B=%b X=%b Y=%b%n",
-		cur.l1, cur.r1, cur.l2, cur.r2, cur.rx, cur.ry, cur.l2Held,
-		cur.btnA, cur.btnB, cur.btnX, cur.btnY);
-	}
-
-	// --- Left stick: direct movement ---
+	// --- Left stick: direct movement (also clears menu-grid mode) ---
 	if(cur.lsActive(cfg.moveDeadZone)) {
-	    movement.tick(map, cur);
-	    // Track gaze direction for smart target — same rotation math as DirectMovement
+	    gpMenuMode = false;
+	    // Clamp click distance to avoid overshooting the current hover target.
+	    // Using hoverGob from the previous tick (one-frame lag is fine).
+	    double maxClickWU = -1;
+	    Gob hover = hoverGob;
+	    Gob playerGob = map.player();
+	    if(hover != null && playerGob != null) {
+		double dx = hover.rc.x - playerGob.rc.x;
+		double dy = hover.rc.y - playerGob.rc.y;
+		double d = Math.sqrt(dx * dx + dy * dy);
+		if(d < cfg.clickDistTiles * DirectMovement.TILE * 1.5)
+		    maxClickWU = Math.max(d - DirectMovement.TILE * 0.4, DirectMovement.TILE * 0.3);
+	    }
+	    movement.tick(map, cur, maxClickWU);
+	    // Gaze tracks movement direction for smart targeting cone.
+	    // Must match DirectMovement formula exactly (DualSense: negate both axes).
 	    float camA = map.camera.angle();
 	    float sinA = (float) Math.sin(camA), cosA = (float) Math.cos(camA);
-	    float wdx = cur.lx * sinA + cur.ly * cosA;
-	    float wdy = cur.lx * cosA - cur.ly * sinA;
+	    float wdx = -cur.lx * sinA + cur.ly * cosA;
+	    float wdy = -cur.lx * cosA - cur.ly * sinA;
 	    target.updateGaze(wdx, wdy);
 	}
 
-	// --- Right stick: camera rotation (L2 held) or mouse emulation ---
-	if(cur.l2Held) {
+	// --- Active overlay menus (priority: flower > interface > picker) ---
+	FlowerMenu flower = FlowerMenu.active;
+	boolean flowerOpen = flower != null && flower.parent != null;
+	boolean interfaceOpen = interfaceMenu != null && interfaceMenu.parent != null;
+	if(!interfaceOpen) interfaceMenuOpen = false; // widget destroyed externally
+
+	// --- Right stick: menus > camera rotation (L2) > mouse emulation ---
+	// DualSense RS: ry positive = up → negate for screen-space angle
+	float rsAngle = (float)Math.atan2(-cur.ry, cur.rx);
+	if(flowerOpen) {
+	    if(cur.rsActive(cfg.mouseDeadZone))
+		flower.gamepadSelect(rsAngle);
+	} else if(interfaceOpen) {
+	    if(cur.rsActive(cfg.mouseDeadZone))
+		interfaceMenu.onStickAngle(rsAngle);
+	} else if(cur.l2Held) {
 	    if(cur.rsActive(cfg.mouseDeadZone)) {
 		// stick-right rotates; stick-up tilts more overhead (negative dElev)
 		map.camera.gpRotate(
@@ -180,8 +212,8 @@ public class GamepadDispatcher {
 	    }
 	}
 
-	// --- RS click: reset camera angle to north ---
-	if(cur.rs && !prevRs)
+	// --- RS click: reset camera angle to north (not while any menu open) ---
+	if(!flowerOpen && !interfaceOpen && cur.rs && !prevRs)
 	    map.camera.gpResetAngle();
 	prevRs = cur.rs;
 
@@ -189,29 +221,86 @@ public class GamepadDispatcher {
 	cfg.combatMode = (gui.fv != null && !gui.fv.lsrel.isEmpty());
 
 	// --- L1: left mouse button ---
-	if(cur.l1 && !prevL1) {
-	    System.err.println("[GP] L1 down → LMB");
+	if(cur.l1 && !prevL1)
 	    emulateMouseButton(1, true);
-	} else if(!cur.l1 && prevL1) {
-	    System.err.println("[GP] L1 up → LMB release");
+	else if(!cur.l1 && prevL1)
 	    emulateMouseButton(1, false);
-	}
 	prevL1 = cur.l1;
 
-	// R1 / picker first so B-to-cancel is consumed before belt can fire
+	// --- R2: toggle interface menu ---
+	if(cur.r2Held && !prevR2) {
+	    if(interfaceOpen) {
+		interfaceMenu.cancel();
+		interfaceMenu = null;
+		interfaceMenuOpen = false;
+	    } else if(!flowerOpen && !radialOpen) {
+		interfaceMenu = new InterfaceMenu(gui);
+		map.adda(interfaceMenu, 0.5, 0.5);
+		interfaceMenuOpen = true;
+	    }
+	}
+	prevR2 = cur.r2Held;
+
+	// --- D-pad: priority dispatch ---
+	// FlowerMenu > InterfaceMenu > RadialPicker > MenuGrid
+	boolean dUp    = cur.dpadUp    && !prev.dpadUp;
+	boolean dDown  = cur.dpadDown  && !prev.dpadDown;
+	boolean dLeft  = cur.dpadLeft  && !prev.dpadLeft;
+	boolean dRight = cur.dpadRight && !prev.dpadRight;
+	if(dUp || dDown || dLeft || dRight) {
+	    if(flowerOpen) {
+		flower.gamepadDpad(dUp, dDown, dLeft, dRight);
+	    } else if(interfaceOpen) {
+		interfaceMenu.onDpad(dUp, dDown, dLeft, dRight);
+	    } else if(radialOpen && currentPicker != null) {
+		currentPicker.onDpad(dUp, dDown, dLeft, dRight);
+	    } else if(gui.menu != null) {
+		if(dUp)    gui.menu.gpMove(0, -1);
+		if(dDown)  gui.menu.gpMove(0,  1);
+		if(dLeft)  gui.menu.gpMove(-1, 0);
+		if(dRight) gui.menu.gpMove( 1, 0);
+		gpMenuMode = true;
+	    }
+	}
+
+	// --- A/B routing (highest active menu wins) ---
+	if(flowerOpen) {
+	    if(cur.btnA && !prev.btnA) flower.gamepadConfirm();
+	    if(cur.btnB && !prev.btnB) flower.gamepadCancel();
+	} else if(interfaceOpen) {
+	    if(cur.btnA && !prev.btnA) interfaceMenu.confirm();
+	    if(cur.btnB && !prev.btnB) interfaceMenu.cancel();
+	} else if(gpMenuMode) {
+	    if(cur.btnA && !prev.btnA && gui.menu != null) gui.menu.gpActivate();
+	    if(cur.btnB && !prev.btnB) gpMenuMode = false;
+	}
+
+	// R1 / picker (B-cancel handled inside, before belt can steal it)
 	dispatchR1(cur, prev, map);
 
-	// ABXY belt hotbar — suppressed while radial picker is open
-	if(!radialOpen)
+	// ABXY belt hotbar — suppressed in any menu mode
+	if(!radialOpen && !flowerOpen && !interfaceOpen && !gpMenuMode)
 	    dispatchBelt(cur, prev, map);
 
-	// Update hover target for overlay drawing
+	// Update hover target for overlay drawing.
+	// Grace period: keep the ring on the last-seen target for 1.5 s after the cone
+	// loses it (handles the common case where the player stops just past the target).
 	Gob player = map.player();
-	if(player != null && !radialOpen) {
-	    SmartTarget.Entry best = target.best(map, player);
-	    hoverGob = (best != null) ? best.gob : null;
-	} else if(radialOpen) {
+	if(radialOpen || interfaceOpen) {
 	    hoverGob = null;
+	    lastHoverGob = null;
+	} else if(player != null) {
+	    SmartTarget.Entry best = target.best(map, player);
+	    if(best != null) {
+		hoverGob = best.gob;
+		lastHoverGob = best.gob;
+		lastHoverTime = System.currentTimeMillis();
+	    } else if(System.currentTimeMillis() - lastHoverTime < 200) {
+		hoverGob = lastHoverGob; // keep ring visible one or two frames after losing cone lock
+	    } else {
+		hoverGob = null;
+		lastHoverGob = null;
+	    }
 	}
     }
 
@@ -242,8 +331,6 @@ public class GamepadDispatcher {
 	boolean r1Prev = prev.r1;
 
 	if(r1 && !r1Prev) {
-	    // Press: start timer
-	    System.err.println("[GP] R1 pressed");
 	    r1PressTime = System.currentTimeMillis();
 	    r1WasHeld = false;
 	}
@@ -263,8 +350,13 @@ public class GamepadDispatcher {
 		currentPicker = null;
 		radialOpen = false;
 	    } else if(!r1WasHeld) {
-		// Tap: smart right-click
-		smartClick(map);
+		// Tap: confirm flower menu if open, else smart right-click
+		FlowerMenu fl = FlowerMenu.active;
+		if(fl != null && fl.parent != null) {
+		    fl.gamepadConfirm();
+		} else {
+		    smartClick(map);
+		}
 	    }
 	}
 

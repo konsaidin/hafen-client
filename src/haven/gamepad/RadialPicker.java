@@ -65,6 +65,15 @@ public class RadialPicker extends Widget {
 	setSelected(idx);
     }
 
+    /** D-pad cycle: up/left = previous, down/right = next. */
+    public void onDpad(boolean up, boolean down, boolean left, boolean right) {
+	if(petals.length == 0) return;
+	if(up || left)
+	    setSelected((selectedIdx - 1 + petals.length) % petals.length);
+	else if(down || right)
+	    setSelected((selectedIdx + 1) % petals.length);
+    }
+
     /** Confirm current selection (R1 release or A button). */
     public void confirm() {
 	if(selectedIdx >= 0 && selectedIdx < petals.length)

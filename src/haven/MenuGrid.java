@@ -47,6 +47,7 @@ public class MenuGrid extends Widget implements KeyBinding.Bindable {
     private Pagina dragging;
     private Collection<PagButton> curbtns = Collections.emptyList();
     private PagButton pressed, layout[][] = new PagButton[gsz.x][gsz.y];
+    private int gpX = 0, gpY = 0;
     private UI.Grab grab;
     private int curoff = 0;
     private boolean recons = true, showkeys = false;
@@ -485,6 +486,11 @@ public class MenuGrid extends Widget implements KeyBinding.Bindable {
 			g.frect(p.add(1, 1), bgsz.sub(1, 1));
 			g.chcolor();
 		    }
+		    if(x == gpX && y == gpY) {
+			g.chcolor(new Color(80, 200, 255, 70));
+			g.frect(p.add(1, 1), bgsz.sub(1, 1));
+			g.chcolor();
+		    }
 		}
 	    }
 	}
@@ -688,5 +694,28 @@ public class MenuGrid extends Widget implements KeyBinding.Bindable {
     public KeyBinding getbinding(Coord cc) {
 	PagButton h = bhit(cc);
 	return((h == null) ? null : h.bind);
+    }
+
+    /** Move the gamepad cursor, wrapping around and skipping empty cells in the chosen axis. */
+    public void gpMove(int dx, int dy) {
+	int nx = gpX, ny = gpY;
+	// Try up to gsz steps to find a non-null cell in the requested direction
+	int steps = (dx != 0) ? gsz.x : gsz.y;
+	for(int i = 0; i < steps; i++) {
+	    nx = ((nx + dx) % gsz.x + gsz.x) % gsz.x;
+	    ny = ((ny + dy) % gsz.y + gsz.y) % gsz.y;
+	    if(layout[nx][ny] != null) {
+		gpX = nx;
+		gpY = ny;
+		return;
+	    }
+	}
+    }
+
+    /** Activate the cell currently under the gamepad cursor. */
+    public void gpActivate() {
+	PagButton btn = layout[gpX][gpY];
+	if(btn != null)
+	    use(btn, new Interaction(), false);
     }
 }

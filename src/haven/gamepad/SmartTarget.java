@@ -134,12 +134,12 @@ public class SmartTarget {
     // -------------------------------------------------------------------------
 
     private float gazeAngle(MapView map) {
-	long ago = System.currentTimeMillis() - lastMoveTime;
-	if(ago < 2000)
+	// Keep last movement direction until the player moves again.
+	// Only fall back to camera-forward on first use (before any stick input).
+	if(lastMoveTime > 0)
 	    return lastMoveAngle;
-	// No recent movement: use camera forward direction (opposite of camera angle)
 	float camAngle = map.camera.angle();
-	return camAngle + (float) Math.PI; // camera looks from behind player
+	return camAngle + (float) Math.PI;
     }
 
     /** Signed angular difference, wrapped to [-PI, PI]. */

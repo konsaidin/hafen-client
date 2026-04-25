@@ -100,16 +100,17 @@ public class GamepadManager {
     }
 
     private void logComponents(Controller c) {
-	StringBuilder sb = new StringBuilder("Gamepad components:\n");
+	StringBuilder sb = new StringBuilder("Gamepad components (stderr):\n");
 	int btnIdx = 0;
 	for(Component comp : c.getComponents()) {
 	    Component.Identifier id = comp.getIdentifier();
-	    String label = (id instanceof Component.Identifier.Button)
-		? "Button._" + (btnIdx++)
-		: id.toString();
-	    sb.append("  ").append(label).append(" -> ").append(comp.getName()).append("\n");
+	    String idStr = (id instanceof Component.Identifier.Button)
+		? "Button[" + (btnIdx++) + "] id=" + id
+		: "Axis id=" + id;
+	    sb.append("  ").append(idStr).append(" name=").append(comp.getName()).append("\n");
 	}
-	log.info(sb.toString());
+	// Use stderr so it's always visible regardless of logging config
+	System.err.print(sb);
     }
 
     private GamepadState readState(Controller ctrl) {
@@ -121,6 +122,10 @@ public class GamepadManager {
 	boolean dU = false, dD = false, dL = false, dR = false;
 	boolean start = false, select = false;
 
+	// Scan buttons by sequential position — works regardless of which Button._N
+	// identifier jinput assigns to each physical button on this controller.
+	int btnIdx = 0;
+
 	for(Component c : comps) {
 	    Component.Identifier id = c.getIdentifier();
 	    float v = c.getPollData();
@@ -131,17 +136,27 @@ public class GamepadManager {
 	    else if(id == Component.Identifier.Axis.RY)  ry = applyDeadZone(v, cfg.mouseDeadZone);
 	    else if(id == Component.Identifier.Axis.Z)   l2 = (v + 1f) / 2f; // -1..1 → 0..1
 	    else if(id == Component.Identifier.Axis.RZ)  r2 = (v + 1f) / 2f;
-	    else if(id == Component.Identifier.Button._0) btnA   = v > 0.5f;
-	    else if(id == Component.Identifier.Button._1) btnB   = v > 0.5f;
-	    else if(id == Component.Identifier.Button._2) btnX   = v > 0.5f;
-	    else if(id == Component.Identifier.Button._3) btnY   = v > 0.5f;
-	    else if(id == Component.Identifier.Button._4) l1     = v > 0.5f;
-	    else if(id == Component.Identifier.Button._5) r1     = v > 0.5f;
-	    else if(id == Component.Identifier.Button._6) select = v > 0.5f;
-	    else if(id == Component.Identifier.Button._7) start  = v > 0.5f;
-	    else if(id == Component.Identifier.Button._8) ls     = v > 0.5f;
-	    else if(id == Component.Identifier.Button._9) rs     = v > 0.5f;
-	    else if(id == Component.Identifier.Axis.POV) {
+	    else if(id instanceof Component.Identifier.Button) {
+		boolean pressed = v > 0.5f;
+		switch(btnIdx) {
+		    // DualSense on Linux (sequential evdev order):
+		    // 0=Cross(A), 1=Circle(B), 2=Square(X), 3=Triangle(Y),
+		    // 4=L1, 5=R1, 6=L2-digital(skip), 7=R2-digital(skip),
+		    // 8=Create/Share, 9=Options, 10=L3, 11=R3
+		    case  0: btnA   = pressed; break;
+		    case  1: btnB   = pressed; break;
+		    case  2: btnX   = pressed; break;
+		    case  3: btnY   = pressed; break;
+		    case  4: l1     = pressed; break;
+		    case  5: r1     = pressed; break;
+		    // 6=L2 digital, 7=R2 digital — read via Axis.Z/RZ, skip here
+		    case  8: select = pressed; break;
+		    case  9: start  = pressed; break;
+		    case 10: ls     = pressed; break;
+		    case 11: rs     = pressed; break;
+		}
+		btnIdx++;
+	    } else if(id == Component.Identifier.Axis.POV) {
 		// Standard POV hat: 0=centered, 0.125=N, 0.25=NE, 0.375=E, 0.5=SE,
 		//                   0.625=S, 0.75=SW, 0.875=W, 1.0=NW
 		dU = (v == 0.125f || v == 1.0f  || v == 0.25f);

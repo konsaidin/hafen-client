@@ -16,7 +16,7 @@ import static haven.OCache.posres;
  */
 public class DirectMovement {
     // 1 tile = 11 world units (see OCache.posres)
-    private static final double TILE = 11.0;
+    static final double TILE = 11.0;
 
     private final GamepadConfig cfg;
 
@@ -30,10 +30,11 @@ public class DirectMovement {
      * Call once per UI tick. Sends a movement click to {@code map} when the
      * stick is active and the click interval has elapsed.
      *
-     * @param map   active MapView
-     * @param state current gamepad snapshot
+     * @param map         active MapView
+     * @param state       current gamepad snapshot
+     * @param maxClickWU  max click distance in world units; ≤0 means use config
      */
-    public void tick(MapView map, GamepadState state) {
+    public void tick(MapView map, GamepadState state, double maxClickWU) {
 	if(!state.lsActive(cfg.moveDeadZone))
 	    return;
 
@@ -74,7 +75,8 @@ public class DirectMovement {
 	worldDx /= mag;
 	worldDy /= mag;
 
-	double dist = cfg.clickDistTiles * TILE;
+	double dist = (maxClickWU > 0 && maxClickWU < cfg.clickDistTiles * TILE)
+	    ? maxClickWU : cfg.clickDistTiles * TILE;
 	double targetX = playerWorld.x + worldDx * dist;
 	double targetY = playerWorld.y + worldDy * dist;
 

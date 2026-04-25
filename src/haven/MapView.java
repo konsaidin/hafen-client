@@ -266,6 +266,12 @@ public class MapView extends PView implements DTarget, Console.Directory {
 	    dist = d;
 	    return(true);
 	}
+
+	public void gpRotate(float dAngl, float dElev) {
+	    angl = (angl + dAngl) % ((float)(Math.PI * 2.0));
+	    elev = Math.max(0f, Math.min((float)(Math.PI / 2.0 - 0.01), elev + dElev));
+	}
+	public void gpResetAngle() { angl = 0f; }
     }
     static {camtypes.put("worse", SimpleCam.class);}
 
@@ -324,6 +330,12 @@ public class MapView extends PView implements DTarget, Console.Directory {
 	    tdist = d;
 	    return(true);
 	}
+
+	public void gpRotate(float dAngl, float dElev) {
+	    tangl += dAngl;
+	    telev = Math.max(0f, Math.min((float)(Math.PI / 2.0 - 0.01), telev + dElev));
+	}
+	public void gpResetAngle() { tangl = 0f; }
     }
     static {camtypes.put("bad", FreeCam.class);}
     
@@ -374,6 +386,11 @@ public class MapView extends PView implements DTarget, Console.Directory {
 	    angl = anglorig + ((float)(c.x - dragorig.x) / 100.0f);
 	    angl = angl % ((float)Math.PI * 2.0f);
 	}
+
+	public void gpRotate(float dAngl, float dElev) {
+	    angl = (angl + dAngl) % ((float)(Math.PI * 2.0));
+	}
+	public void gpResetAngle() { angl = -(float)(Math.PI * 0.25); }
 
 	public String stats() {
 	    return(String.format("%.1f %.2f %.2f %.1f", dist, elev / Math.PI, angl / Math.PI, field));
@@ -469,6 +486,13 @@ public class MapView extends PView implements DTarget, Console.Directory {
 	public boolean wheel(Coord c, int amount) {
 	    chfield(tfield + amount * 10);
 	    return(true);
+	}
+
+	public void gpRotate(float dAngl, float dElev) {
+	    tangl += dAngl;
+	}
+	public void gpResetAngle() {
+	    tangl = (float)(Math.PI * 0.5 * (Math.floor(angl / (Math.PI * 0.5)) + 0.5));
 	}
 
 	public boolean keydown(KeyDownEvent ev) {

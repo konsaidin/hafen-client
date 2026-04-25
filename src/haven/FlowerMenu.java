@@ -40,6 +40,10 @@ public class FlowerMenu extends Widget {
     public Petal[] opts;
     private UI.Grab mg, kg;
 
+    /** Set while a FlowerMenu is visible; cleared on close. Accessed from gamepad tick. */
+    public static volatile FlowerMenu active = null;
+    private int gpHovered = 0;
+
     @RName("sm")
     public static class $_ implements Factory {
 	public Widget create(UI ui, Object[] args) {
@@ -75,6 +79,11 @@ public class FlowerMenu extends Widget {
 	public void draw(GOut g) {
 	    g.chcolor(new Color(255, 255, 255, (int)(255 * a)));
 	    g.image(pbg, new Coord(3, 3), new Coord(3, 3), sz.add(new Coord(-6, -6)), UI.scale(pbg.sz()));
+	    if(num == FlowerMenu.this.gpHovered) {
+		g.chcolor(new Color(255, 220, 40, (int)(100 * a)));
+		g.frect(new Coord(3, 3), sz.add(new Coord(-6, -6)));
+		g.chcolor(new Color(255, 255, 255, (int)(255 * a)));
+	    }
 	    pbox.draw(g, Coord.z, sz);
 	    g.image(text.tex(), sz.div(2).sub(text.sz().div(2)));
 	}
@@ -210,6 +219,7 @@ public class FlowerMenu extends Widget {
     }
 
     protected void added() {
+	FlowerMenu.active = this;
 	if(c.equals(-1, -1))
 	    c = parent.ui.lcc;
 	mg = ui.grabmouse(this);
@@ -228,10 +238,12 @@ public class FlowerMenu extends Widget {
 
     public void uimsg(String msg, Object... args) {
 	if(msg == "cancel") {
+	    FlowerMenu.active = null;
 	    new Cancel();
 	    mg.remove();
 	    kg.remove();
 	} else if(msg == "act") {
+	    FlowerMenu.active = null;
 	    new Chosen(opts[Utils.iv(args[0])]);
 	    mg.remove();
 	    kg.remove();
@@ -259,10 +271,51 @@ public class FlowerMenu extends Widget {
     }
 
     public void choose(Petal option) {
+	FlowerMenu.active = null;
 	if(option == null) {
 	    wdgmsg("cl", -1);
 	} else {
 	    wdgmsg("cl", option.num, ui.modflags());
 	}
+    }
+
+    /** D-pad cycle: up/left = previous, down/right = next. */
+    public void gamepadDpad(boolean up, boolean down, boolean left, boolean right) {
+	if(opts.length == 0) return;
+	if(up || left)
+	    gpHovered = (gpHovered - 1 + opts.length) % opts.length;
+	else if(down || right)
+	    gpHovered = (gpHovered + 1) % opts.length;
+    }
+
+    /** Called from gamepad dispatcher: select the nearest petal by RS angle (screen-space atan2). */
+    public void gamepadSelect(float angle) {
+	if(opts.length == 0) return;
+	int best = 0;
+	float bestDiff = Float.MAX_VALUE;
+	for(int i = 0; i < opts.length; i++) {
+	    float diff = Math.abs(angleDiff((float)opts[i].ta, angle));
+	    if(diff < bestDiff) {
+		bestDiff = diff;
+		best = i;
+	    }
+	}
+	gpHovered = best;
+    }
+
+    public void gamepadConfirm() {
+	if(gpHovered >= 0 && gpHovered < opts.length)
+	    choose(opts[gpHovered]);
+    }
+
+    public void gamepadCancel() {
+	choose(null);
+    }
+
+    private static float angleDiff(float a, float b) {
+	float d = a - b;
+	while(d >  Math.PI) d -= (float)(2 * Math.PI);
+	while(d < -Math.PI) d += (float)(2 * Math.PI);
+	return d;
     }
 }

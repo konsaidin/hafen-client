@@ -1388,6 +1388,17 @@ public class GameUI extends ConsoleHost implements Console.Directory, UI.Notice.
 	}
     }
 
+    /** Called from gamepad dispatcher (R2 interface menu). */
+    public void gpToggleUI(String id) {
+	switch(id) {
+	    case "map": togglewnd(mapfile); break;
+	    case "chr": togglewnd(chrwdg); break;
+	    case "kin": togglewnd(zerg);   break;
+	    case "inv": togglewnd(invwnd); break;
+	    case "equ": togglewnd(equwnd); break;
+	}
+    }
+
     public static class MenuButton extends IButton {
 	MenuButton(String base, KeyBinding gkey, String tooltip) {
 	    super("gfx/hud/" + base, "", "-d", "-h");
