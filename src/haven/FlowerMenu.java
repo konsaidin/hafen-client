@@ -279,13 +279,13 @@ public class FlowerMenu extends Widget {
 	}
     }
 
-    /** D-pad cycle: up/left = previous, down/right = next. */
+    /** D-pad: select nearest petal in the pressed cardinal direction. */
     public void gamepadDpad(boolean up, boolean down, boolean left, boolean right) {
 	if(opts.length == 0) return;
-	if(up || left)
-	    gpHovered = (gpHovered - 1 + opts.length) % opts.length;
-	else if(down || right)
-	    gpHovered = (gpHovered + 1) % opts.length;
+	if(up)         gamepadSelect(-(float)Math.PI / 2); // 12 o'clock
+	else if(down)  gamepadSelect( (float)Math.PI / 2); // 6 o'clock
+	else if(right) gamepadSelect(0f);                  // 3 o'clock
+	else if(left)  gamepadSelect( (float)Math.PI);     // 9 o'clock
     }
 
     /** Called from gamepad dispatcher: select the nearest petal by RS angle (screen-space atan2). */

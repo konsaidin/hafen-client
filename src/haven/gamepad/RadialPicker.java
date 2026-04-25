@@ -40,38 +40,47 @@ public class RadialPicker extends Widget {
 	    petals[i] = new Petal(label, e, i, count);
 	    add(petals[i]);
 	}
-	placePetals();
+	// placePetals() is called in added() when the parent size is known
     }
 
     @Override
     protected void added() {
-	// Occupy the full parent so mouse-grab covers the whole view
-	resize(parent.sz);
+	c = parent.sz.div(2); // widget origin = screen center; sz stays (0,0)
 	mg = ui.grabmouse(this);
 	kg = ui.grabkeys(this);
+	placePetals();
 	animateOpen();
     }
 
     // -------------------------------------------------------------------------
     // Gamepad API (called from GameUI dispatcher)
 
-    /** Update selected sector from RS angle. */
+    /** Update selection from RS angle (screen-space: atan2(-ry, rx)). */
     public void onStickAngle(float angle) {
 	if(petals.length == 0) return;
-	// Shift so that angle 0 (right) maps to sector 0; normalize to [0, 2PI)
-	double norm = ((angle % TWO_PI) + TWO_PI) % TWO_PI;
-	double sectorSize = TWO_PI / petals.length;
-	int idx = (int)(norm / sectorSize) % petals.length;
-	setSelected(idx);
+	int best = 0;
+	float bestDiff = Float.MAX_VALUE;
+	for(int i = 0; i < petals.length; i++) {
+	    float diff = Math.abs(angleDiff((float)petals[i].angle, angle));
+	    if(diff < bestDiff) { bestDiff = diff; best = i; }
+	}
+	setSelected(best);
     }
 
-    /** D-pad cycle: up/left = previous, down/right = next. */
+    /** D-pad: map cardinal direction to nearest petal by angle. */
     public void onDpad(boolean up, boolean down, boolean left, boolean right) {
 	if(petals.length == 0) return;
-	if(up || left)
-	    setSelected((selectedIdx - 1 + petals.length) % petals.length);
-	else if(down || right)
-	    setSelected((selectedIdx + 1) % petals.length);
+	if(up)         onStickAngle(-(float)Math.PI / 2);
+	else if(down)  onStickAngle( (float)Math.PI / 2);
+	else if(right) onStickAngle(0f);
+	else if(left)  onStickAngle( (float)Math.PI);
+    }
+
+    private static float angleDiff(float a, float b) {
+	float d = a - b;
+	while(d >  Math.PI) d -= (float)(2 * Math.PI);
+	while(d < -Math.PI) d += (float)(2 * Math.PI);
+	return d;
     }
 
     /** Confirm current selection (R1 release or A button). */
@@ -119,19 +128,16 @@ public class RadialPicker extends Widget {
 
     @Override
     public void draw(GOut g) {
-	// Draw connecting lines from center to each petal (subtle)
 	for(int i = 0; i < petals.length; i++) {
 	    Petal p = petals[i];
 	    if(i == selectedIdx)
 		g.chcolor(new Color(255, 220, 80, (int)(180 * p.a)));
 	    else
 		g.chcolor(new Color(255, 255, 255, (int)(60 * p.a)));
-	    Coord from = Coord.z;
-	    Coord to = p.c.add(p.sz.div(2));
-	    g.line(from, to, 1);
+	    g.line(Coord.z, p.c.add(p.sz.div(2)), 1);
 	}
 	g.chcolor();
-	super.draw(g, false); // no clipping — petals extend beyond widget's sz
+	super.draw(g, false);
     }
 
     @Override
@@ -182,8 +188,7 @@ public class RadialPicker extends Widget {
 	void moveTo(double angle, double radius) {
 	    this.angle = angle;
 	    this.radius = radius;
-	    Coord center = Coord.sc(angle, radius);
-	    c = center.sub(sz.div(2));
+	    c = Coord.sc(angle, radius).sub(sz.div(2));
 	}
 
 	@Override

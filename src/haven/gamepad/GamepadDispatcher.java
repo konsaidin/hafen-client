@@ -45,13 +45,17 @@ public class GamepadDispatcher {
     // L1 edge detection (LMB)
     private boolean prevL1 = false;
 
-    // R2 edge detection (interface menu)
-    private boolean prevR2 = false;
+    // R2 / Select edge detection
+    private boolean prevR2     = false;
+    private boolean prevSelect = false;
     private InterfaceMenu interfaceMenu = null;
     private boolean interfaceMenuOpen = false;
 
     // D-pad menu-grid mode: active when D-pad last navigated MenuGrid
     private boolean gpMenuMode = false;
+    // D-pad debounce: prevent double-firing from POV hat jitter
+    private long lastDpadMs = 0;
+    private static final long DPAD_DEBOUNCE_MS = 130;
 
     // Current best target for the frame (used by drawOverlay)
     private volatile Gob hoverGob = null;
@@ -227,15 +231,22 @@ public class GamepadDispatcher {
 	    emulateMouseButton(1, false);
 	prevL1 = cur.l1;
 
-	// --- R2: toggle interface menu ---
+	// --- Select: confirm MenuGrid D-pad navigation ---
+	if(cur.select && !prevSelect) {
+	    if(gpMenuMode && gui.menu != null)
+		gui.menu.gpActivate();
+	}
+	prevSelect = cur.select;
+
+	// --- R2: confirm FlowerMenu / InterfaceMenu, or open InterfaceMenu ---
 	if(cur.r2Held && !prevR2) {
-	    if(interfaceOpen) {
-		interfaceMenu.cancel();
-		interfaceMenu = null;
-		interfaceMenuOpen = false;
-	    } else if(!flowerOpen && !radialOpen) {
+	    if(flowerOpen)
+		flower.gamepadConfirm();
+	    else if(interfaceOpen)
+		interfaceMenu.confirm();
+	    else if(!radialOpen) {
 		interfaceMenu = new InterfaceMenu(gui);
-		map.adda(interfaceMenu, 0.5, 0.5);
+		gui.add(interfaceMenu);
 		interfaceMenuOpen = true;
 	    }
 	}
@@ -247,7 +258,11 @@ public class GamepadDispatcher {
 	boolean dDown  = cur.dpadDown  && !prev.dpadDown;
 	boolean dLeft  = cur.dpadLeft  && !prev.dpadLeft;
 	boolean dRight = cur.dpadRight && !prev.dpadRight;
+	long nowMs = System.currentTimeMillis();
+	if(nowMs - lastDpadMs < DPAD_DEBOUNCE_MS)
+	    dUp = dDown = dLeft = dRight = false; // debounce POV hat jitter
 	if(dUp || dDown || dLeft || dRight) {
+	    lastDpadMs = nowMs;
 	    if(flowerOpen) {
 		flower.gamepadDpad(dUp, dDown, dLeft, dRight);
 	    } else if(interfaceOpen) {
@@ -263,15 +278,12 @@ public class GamepadDispatcher {
 	    }
 	}
 
-	// --- A/B routing (highest active menu wins) ---
+	// --- B: cancel the highest-priority active menu; A: hotbar only ---
 	if(flowerOpen) {
-	    if(cur.btnA && !prev.btnA) flower.gamepadConfirm();
 	    if(cur.btnB && !prev.btnB) flower.gamepadCancel();
 	} else if(interfaceOpen) {
-	    if(cur.btnA && !prev.btnA) interfaceMenu.confirm();
 	    if(cur.btnB && !prev.btnB) interfaceMenu.cancel();
 	} else if(gpMenuMode) {
-	    if(cur.btnA && !prev.btnA && gui.menu != null) gui.menu.gpActivate();
 	    if(cur.btnB && !prev.btnB) gpMenuMode = false;
 	}
 
@@ -350,13 +362,7 @@ public class GamepadDispatcher {
 		currentPicker = null;
 		radialOpen = false;
 	    } else if(!r1WasHeld) {
-		// Tap: confirm flower menu if open, else smart right-click
-		FlowerMenu fl = FlowerMenu.active;
-		if(fl != null && fl.parent != null) {
-		    fl.gamepadConfirm();
-		} else {
-		    smartClick(map);
-		}
+		smartClick(map);
 	    }
 	}
 
@@ -414,7 +420,7 @@ public class GamepadDispatcher {
 	    radialOpen = false;
 	    currentPicker = null;
 	});
-	map.adda(currentPicker, 0.5, 0.5);
+	gui.add(currentPicker);
 	radialOpen = true;
     }
 

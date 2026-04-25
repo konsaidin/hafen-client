@@ -30,14 +30,15 @@ public class InterfaceMenu extends Widget {
 	    entries[i] = new Entry(LABELS[i], i);
 	    add(entries[i]);
 	}
-	placePetals();
+	// placePetals() called in added() once parent size is known
     }
 
     @Override
     protected void added() {
-	resize(parent.sz);
+	c = parent.sz.div(2); // widget origin = screen center; sz stays (0,0)
 	mg = ui.grabmouse(this);
 	kg = ui.grabkeys(this);
+	placePetals();
     }
 
     // -------------------------------------------------------------------------
@@ -45,17 +46,31 @@ public class InterfaceMenu extends Widget {
 
     public void onStickAngle(float angle) {
 	if(entries.length == 0) return;
-	double norm = ((angle % TWO_PI) + TWO_PI) % TWO_PI;
-	double sector = TWO_PI / entries.length;
-	selectedIdx = (int)(norm / sector) % entries.length;
+	// Nearest-angle search — works correctly for any number of petals.
+	// Entry i is placed at angle PI/2 - i * 2PI/N (screen-space, Y-down).
+	int best = 0;
+	float bestDiff = Float.MAX_VALUE;
+	for(int i = 0; i < entries.length; i++) {
+	    float ta = (float)((Math.PI / 2) - i * TWO_PI / entries.length);
+	    float diff = Math.abs(angleDiff(ta, angle));
+	    if(diff < bestDiff) { bestDiff = diff; best = i; }
+	}
+	selectedIdx = best;
     }
 
+    /** D-pad: map cardinal direction to nearest entry by angle. */
     public void onDpad(boolean up, boolean down, boolean left, boolean right) {
-	if(entries.length == 0) return;
-	if(up || left)
-	    selectedIdx = (selectedIdx - 1 + entries.length) % entries.length;
-	else if(down || right)
-	    selectedIdx = (selectedIdx + 1) % entries.length;
+	if(up)         onStickAngle(-(float)Math.PI / 2);
+	else if(down)  onStickAngle( (float)Math.PI / 2);
+	else if(right) onStickAngle(0f);
+	else if(left)  onStickAngle( (float)Math.PI);
+    }
+
+    private static float angleDiff(float a, float b) {
+	float d = a - b;
+	while(d >  Math.PI) d -= (float)(2 * Math.PI);
+	while(d < -Math.PI) d += (float)(2 * Math.PI);
+	return d;
     }
 
     public void confirm() {
@@ -80,8 +95,7 @@ public class InterfaceMenu extends Widget {
 	double r = UI.scale(80);
 	for(int i = 0; i < entries.length; i++) {
 	    double a = (Math.PI / 2) - (i * TWO_PI / entries.length);
-	    Coord center = Coord.sc(a, r);
-	    entries[i].c = center.sub(entries[i].sz.div(2));
+	    entries[i].c = Coord.sc(a, r).sub(entries[i].sz.div(2));
 	}
     }
 
