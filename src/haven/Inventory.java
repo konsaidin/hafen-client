@@ -37,6 +37,9 @@ public class Inventory extends Widget implements DTarget {
     public boolean[] sqmask = null;
     Map<GItem, WItem> wmap = new HashMap<GItem, WItem>();
 
+    // Gamepad cursor (-1 = no selection)
+    public int gpX = -1, gpY = -1;
+
     static {
 	Coord sz = sqsz.add(1, 1);
 	WritableRaster buf = PUtils.imgraster(sz);
@@ -77,6 +80,14 @@ public class Inventory extends Widget implements DTarget {
 		}
 	    }
 	}
+	if(gpX >= 0 && gpY >= 0 && gpX < isz.x && gpY < isz.y) {
+	    Coord sl = new Coord(gpX, gpY).mul(sqsz);
+	    g.chcolor(new java.awt.Color(80, 200, 255, 70));
+	    g.frect(sl.add(1, 1), sqsz.sub(2, 2));
+	    g.chcolor(new java.awt.Color(80, 200, 255, 200));
+	    g.rect(sl.add(1, 1), sqsz.sub(2, 2));
+	    g.chcolor();
+	}
 	super.draw(g);
     }
 	
@@ -85,6 +96,23 @@ public class Inventory extends Widget implements DTarget {
 	isz = sz;
     }
     
+    public void gpMove(int dx, int dy) {
+	if(gpX < 0) { gpX = 0; gpY = 0; return; }
+	gpX = Math.max(0, Math.min(isz.x - 1, gpX + dx));
+	gpY = Math.max(0, Math.min(isz.y - 1, gpY + dy));
+    }
+
+    public void gpActivate() {
+	if(gpX < 0 || gpY < 0) return;
+	Coord slotPos = new Coord(gpX, gpY).mul(sqsz).add(1, 1);
+	for(WItem wi : wmap.values()) {
+	    if(wi.c.equals(slotPos)) {
+		wi.item.wdgmsg("iact", wi.sz.div(2), 0);
+		return;
+	    }
+	}
+    }
+
     public boolean mousewheel(MouseWheelEvent ev) {
 	if(ui.modshift) {
 	    Inventory minv = getparent(GameUI.class).maininv;

@@ -3,7 +3,9 @@ package haven.gamepad;
 import haven.*;
 
 import java.awt.Color;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static haven.OCache.posres;
 
@@ -63,6 +65,10 @@ public class GamepadDispatcher {
     private Gob lastHoverGob = null;
     private long lastHoverTime = 0;
 
+    // Window focus tracking for D-pad navigation
+    private Window gpFocusedWindow = null;
+    private final Set<Window> knownWindows = new HashSet<>();
+
 
     public GamepadDispatcher(GameUI gui, GamepadConfig cfg) {
 	this.gui = gui;
@@ -83,17 +89,12 @@ public class GamepadDispatcher {
      *  - A COMBAT MODE badge when combat mode is active
      */
     public void drawOverlay(GOut g, MapView map) {
-	drawTargetRing(g, map);
+	drawTargetIndicator(g, map);
 	drawHUDBadges(g);
     }
 
     private static final Text combatText  = Text.render("⚔ COMBAT");
     private static final Text gamepadText = Text.render("⌖ GAMEPAD");
-
-    private Text rsDebugText = null;
-    private String rsDebugLast = "";
-    private Text dpadDebugText = null;
-    private String dpadDebugLast = "";
 
     private void drawHUDBadges(GOut g) {
 	int x = UI.scale(8);
@@ -106,39 +107,6 @@ public class GamepadDispatcher {
 	    g.chcolor(new Color(120, 200, 120, 230));
 	    g.image(gamepadText.tex(), new Coord(x, y));
 	    y += ts.y + pad;
-
-	    // RS diagnostic: confirm axis values and camera type
-	    GamepadState s = manager.getState();
-	    MapView mv = gui.map;
-	    String camName = (mv != null) ? mv.camera.getClass().getSimpleName() : "?";
-	    String rsStr = String.format("RS %.2f %.2f cam=%s", s.rx, s.ry, camName);
-	    if(!rsStr.equals(rsDebugLast)) {
-		rsDebugText = Text.render(rsStr);
-		rsDebugLast = rsStr;
-	    }
-	    if(rsDebugText != null) {
-		Coord ds = rsDebugText.sz();
-		g.chcolor(new Color(0, 0, 0, 140));
-		g.frect(new Coord(x - pad, y - pad / 2), ds.add(pad * 2, pad));
-		g.chcolor(new Color(180, 180, 80, 220));
-		g.image(rsDebugText.tex(), new Coord(x, y));
-		y += ds.y + pad;
-	    }
-
-	    // D-pad raw state
-	    String dpadStr = String.format("DPAD U=%b D=%b L=%b R=%b", s.dpadUp, s.dpadDown, s.dpadLeft, s.dpadRight);
-	    if(!dpadStr.equals(dpadDebugLast)) {
-		dpadDebugText = Text.render(dpadStr);
-		dpadDebugLast = dpadStr;
-	    }
-	    if(dpadDebugText != null) {
-		Coord ds = dpadDebugText.sz();
-		g.chcolor(new Color(0, 0, 0, 140));
-		g.frect(new Coord(x - pad, y - pad / 2), ds.add(pad * 2, pad));
-		g.chcolor(new Color(100, 200, 255, 220));
-		g.image(dpadDebugText.tex(), new Coord(x, y));
-		y += ds.y + pad;
-	    }
 	}
 	if(cfg.combatMode) {
 	    Coord ts = combatText.sz();
@@ -150,26 +118,55 @@ public class GamepadDispatcher {
 	g.chcolor();
     }
 
-    private static final int RING_R = UI.scale(20);
-    private static final int RING_SEGS = 16;
+    private static final int ARROW_W      = UI.scale(12);
+    private static final int ARROW_H      = UI.scale(10);
+    private static final int ARROW_OFFSET = UI.scale(28);
+    private static final int ARROW_STEM   = UI.scale(6);
 
-    private void drawTargetRing(GOut g, MapView map) {
+    private Text hoverGobNameText = null;
+    private String hoverGobNameLast = "";
+
+    private void drawTargetIndicator(GOut g, MapView map) {
 	Gob gob = hoverGob;
 	if(gob == null) return;
 	Coord3f scr = map.screenxf(gob.rc);
 	if(scr == null) return;
-	Coord center = new Coord((int) scr.x, (int) scr.y);
+	int cx  = (int)scr.x;
+	int tipY  = (int)scr.y - ARROW_OFFSET;         // arrow tip (pointing down, toward gob)
+	int baseY = tipY - ARROW_H;                     // flat top of triangle
+	int stemY = baseY - ARROW_STEM;                 // top of stem
 
-	g.chcolor(new Color(80, 220, 255, 200));
-	double step = 2 * Math.PI / RING_SEGS;
-	for(int i = 0; i < RING_SEGS; i++) {
-	    double a0 = i * step;
-	    double a1 = (i + 1) * step;
-	    Coord p0 = center.add((int)(Math.cos(a0) * RING_R), (int)(Math.sin(a0) * RING_R));
-	    Coord p1 = center.add((int)(Math.cos(a1) * RING_R), (int)(Math.sin(a1) * RING_R));
-	    g.line(p0, p1, 2.0);
+	g.chcolor(new Color(80, 220, 255, 220));
+	g.line(new Coord(cx, stemY), new Coord(cx, baseY), 2.0);                                 // stem
+	g.line(new Coord(cx - ARROW_W/2, baseY), new Coord(cx, tipY), 2.0);                     // left side
+	g.line(new Coord(cx + ARROW_W/2, baseY), new Coord(cx, tipY), 2.0);                     // right side
+	g.line(new Coord(cx - ARROW_W/2, baseY), new Coord(cx + ARROW_W/2, baseY), 2.0);        // base
+
+	// Name label above the indicator
+	String resName = SmartTarget.resName(gob);
+	String displayName = gobDisplayName(resName);
+	if(displayName != null) {
+	    if(!displayName.equals(hoverGobNameLast)) {
+		hoverGobNameText = Text.render(displayName);
+		hoverGobNameLast = displayName;
+	    }
+	    if(hoverGobNameText != null) {
+		Coord ns = hoverGobNameText.sz();
+		Coord np = new Coord(cx - ns.x / 2, stemY - ns.y - UI.scale(2));
+		g.chcolor(new Color(0, 0, 0, 160));
+		g.frect(np.sub(UI.scale(3), UI.scale(2)), ns.add(UI.scale(6), UI.scale(4)));
+		g.chcolor(new Color(80, 220, 255, 220));
+		g.image(hoverGobNameText.tex(), np);
+	    }
 	}
 	g.chcolor();
+    }
+
+    private static String gobDisplayName(String resName) {
+	if(resName == null || resName.isEmpty()) return null;
+	String part = resName.substring(resName.lastIndexOf('/') + 1);
+	if(part.isEmpty()) return null;
+	return Character.toUpperCase(part.charAt(0)) + part.substring(1);
     }
 
     /** Called from GameUI.tick(). */
@@ -179,6 +176,19 @@ public class GamepadDispatcher {
 
 	GamepadState cur  = manager.getState();
 	GamepadState prev = manager.getPrevState();
+
+	// --- Track newly opened server Windows; last added becomes D-pad focus ---
+	for(Widget w = gui.child; w != null; w = w.next) {
+	    if(w instanceof Window && !knownWindows.contains(w)) {
+		Window wnd = (Window)w;
+		knownWindows.add(wnd);
+		gpFocusedWindow = wnd;
+	    }
+	}
+	knownWindows.removeIf(w -> w.parent == null);
+	if(gpFocusedWindow != null && gpFocusedWindow.parent == null)
+	    gpFocusedWindow = null;
+	boolean wndFocused = gpFocusedWindow != null;
 
 	// --- Left stick: direct movement (also clears menu-grid mode) ---
 	if(cur.lsActive(cfg.moveDeadZone)) {
@@ -252,10 +262,14 @@ public class GamepadDispatcher {
 	    emulateMouseButton(1, false);
 	prevL1 = cur.l1;
 
-	// --- Select: confirm MenuGrid D-pad navigation ---
+	// --- Select: confirm inventory slot or MenuGrid ---
 	if(cur.select && !prevSelect) {
-	    if(gpMenuMode && gui.menu != null)
+	    if(wndFocused) {
+		Inventory inv = findChild(gpFocusedWindow, Inventory.class);
+		if(inv != null) inv.gpActivate();
+	    } else if(gpMenuMode && gui.menu != null) {
 		gui.menu.gpActivate();
+	    }
 	}
 	prevSelect = cur.select;
 
@@ -290,6 +304,21 @@ public class GamepadDispatcher {
 		interfaceMenu.onDpad(dUp, dDown, dLeft, dRight);
 	    } else if(radialOpen && currentPicker != null) {
 		currentPicker.onDpad(dUp, dDown, dLeft, dRight);
+	    } else if(wndFocused) {
+		Inventory inv = findChild(gpFocusedWindow, Inventory.class);
+		if(inv != null) {
+		    if(dUp)         inv.gpMove(0, -1);
+		    else if(dDown)  inv.gpMove(0,  1);
+		    else if(dLeft)  inv.gpMove(-1, 0);
+		    else if(dRight) inv.gpMove( 1, 0);
+		} else {
+		    // Scroll window content at its center
+		    int scroll = dUp ? -3 : dDown ? 3 : 0;
+		    if(scroll != 0) {
+			Coord wc = absolutePos(gpFocusedWindow).add(gpFocusedWindow.sz.div(2));
+			gui.ui.dispatch(gui.ui.root, new Widget.MouseWheelEvent(wc, scroll));
+		    }
+		}
 	    } else if(gui.menu != null) {
 		// if/else if: ignore diagonals (POV hat can briefly report diagonal on press)
 		if(dUp)         gui.menu.gpMove(0, -1);
@@ -305,6 +334,17 @@ public class GamepadDispatcher {
 	    if(cur.btnB && !prev.btnB) flower.gamepadCancel();
 	} else if(interfaceOpen) {
 	    if(cur.btnB && !prev.btnB) interfaceMenu.cancel();
+	} else if(wndFocused) {
+	    if(cur.btnB && !prev.btnB) {
+		Inventory inv = findChild(gpFocusedWindow, Inventory.class);
+		if(inv != null && inv.gpX >= 0) {
+		    inv.gpX = -1;  // deselect slot first press
+		    inv.gpY = -1;
+		} else {
+		    gpFocusedWindow.reqclose();
+		    gpFocusedWindow = null;
+		}
+	    }
 	} else if(gpMenuMode) {
 	    if(cur.btnB && !prev.btnB) gpMenuMode = false;
 	}
@@ -515,5 +555,27 @@ public class GamepadDispatcher {
 	ui.lcc = mc;
 	ui.dispatch(ui.root, new Widget.MouseDownEvent(mc, 3));
 	ui.dispatch(ui.root, new Widget.MouseUpEvent(mc, 3));
+    }
+
+    // -------------------------------------------------------------------------
+    // Widget utilities
+
+    /** Recursively finds the first child widget of the given class. */
+    @SuppressWarnings("unchecked")
+    private static <T extends Widget> T findChild(Widget root, Class<T> cls) {
+	for(Widget w = root.child; w != null; w = w.next) {
+	    if(cls.isInstance(w)) return (T)w;
+	    T found = findChild(w, cls);
+	    if(found != null) return found;
+	}
+	return null;
+    }
+
+    /** Returns the absolute screen position of a widget by summing parent offsets. */
+    private static Coord absolutePos(Widget w) {
+	Coord c = Coord.z;
+	for(Widget p = w; p != null; p = p.parent)
+	    c = c.add(p.c);
+	return c;
     }
 }
