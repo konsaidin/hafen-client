@@ -157,12 +157,15 @@ public class GamepadManager {
 		}
 		btnIdx++;
 	    } else if(id == Component.Identifier.Axis.POV) {
-		// Standard POV hat: 0=centered, 0.125=N, 0.25=NE, 0.375=E, 0.5=SE,
-		//                   0.625=S, 0.75=SW, 0.875=W, 1.0=NW
-		dU = (v == 0.125f || v == 1.0f  || v == 0.25f);
-		dR = (v == 0.25f  || v == 0.375f || v == 0.5f);
-		dD = (v == 0.5f   || v == 0.625f || v == 0.75f);
-		dL = (v == 0.75f  || v == 0.875f || v == 1.0f);
+		// POV hat — each value maps to exactly one direction (no overlap).
+		// DualSense on Linux reports cardinal presses as diagonal hat values
+		// (45° clockwise shift): UP=NE(0.25), RIGHT=SE(0.5), DOWN=SW(0.75), LEFT=NW(1.0).
+		// Standard controllers use true cardinals: N(0.125), E(0.375), S(0.625), W(0.875).
+		// Assigning NE→U, SE→R, SW→D, NW→L covers both cases with no multi-flag firing.
+		dU = (v == 0.125f || v == 0.25f);  // N  or NE (DualSense UP)
+		dR = (v == 0.375f || v == 0.5f);   // E  or SE (DualSense RIGHT)
+		dD = (v == 0.625f || v == 0.75f);  // S  or SW (DualSense DOWN)
+		dL = (v == 0.875f || v == 1.0f);   // W  or NW (DualSense LEFT)
 	    }
 	}
 

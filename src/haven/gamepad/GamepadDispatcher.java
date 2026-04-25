@@ -36,6 +36,7 @@ public class GamepadDispatcher {
     // R1 hold tracking
     private long   r1PressTime = 0;
     private boolean r1WasHeld  = false;
+    private boolean r1PressedWithFlower = false; // R1 was pressed while FlowerMenu was open
     private boolean radialOpen = false;
     private RadialPicker currentPicker = null;
 
@@ -91,6 +92,8 @@ public class GamepadDispatcher {
 
     private Text rsDebugText = null;
     private String rsDebugLast = "";
+    private Text dpadDebugText = null;
+    private String dpadDebugLast = "";
 
     private void drawHUDBadges(GOut g) {
 	int x = UI.scale(8);
@@ -119,6 +122,21 @@ public class GamepadDispatcher {
 		g.frect(new Coord(x - pad, y - pad / 2), ds.add(pad * 2, pad));
 		g.chcolor(new Color(180, 180, 80, 220));
 		g.image(rsDebugText.tex(), new Coord(x, y));
+		y += ds.y + pad;
+	    }
+
+	    // D-pad raw state
+	    String dpadStr = String.format("DPAD U=%b D=%b L=%b R=%b", s.dpadUp, s.dpadDown, s.dpadLeft, s.dpadRight);
+	    if(!dpadStr.equals(dpadDebugLast)) {
+		dpadDebugText = Text.render(dpadStr);
+		dpadDebugLast = dpadStr;
+	    }
+	    if(dpadDebugText != null) {
+		Coord ds = dpadDebugText.sz();
+		g.chcolor(new Color(0, 0, 0, 140));
+		g.frect(new Coord(x - pad, y - pad / 2), ds.add(pad * 2, pad));
+		g.chcolor(new Color(100, 200, 255, 220));
+		g.image(dpadDebugText.tex(), new Coord(x, y));
 		y += ds.y + pad;
 	    }
 	}
@@ -194,7 +212,7 @@ public class GamepadDispatcher {
 	if(!interfaceOpen) interfaceMenuOpen = false; // widget destroyed externally
 
 	// --- Right stick: menus > camera rotation (L2) > mouse emulation ---
-	// DualSense RS: ry positive = up → negate for screen-space angle
+	// DualSense RS: ry positive = up → negate for screen-space Y-down angle
 	float rsAngle = (float)Math.atan2(-cur.ry, cur.rx);
 	if(flowerOpen) {
 	    if(cur.rsActive(cfg.mouseDeadZone))
@@ -202,6 +220,9 @@ public class GamepadDispatcher {
 	} else if(interfaceOpen) {
 	    if(cur.rsActive(cfg.mouseDeadZone))
 		interfaceMenu.onStickAngle(rsAngle);
+	} else if(radialOpen && currentPicker != null) {
+	    if(cur.rsActive(cfg.mouseDeadZone))
+		currentPicker.onStickAngle(rsAngle);
 	} else if(cur.l2Held) {
 	    if(cur.rsActive(cfg.mouseDeadZone)) {
 		// stick-right rotates; stick-up tilts more overhead (negative dElev)
@@ -270,10 +291,11 @@ public class GamepadDispatcher {
 	    } else if(radialOpen && currentPicker != null) {
 		currentPicker.onDpad(dUp, dDown, dLeft, dRight);
 	    } else if(gui.menu != null) {
-		if(dUp)    gui.menu.gpMove(0, -1);
-		if(dDown)  gui.menu.gpMove(0,  1);
-		if(dLeft)  gui.menu.gpMove(-1, 0);
-		if(dRight) gui.menu.gpMove( 1, 0);
+		// if/else if: ignore diagonals (POV hat can briefly report diagonal on press)
+		if(dUp)         gui.menu.gpMove(0, -1);
+		else if(dDown)  gui.menu.gpMove(0,  1);
+		else if(dLeft)  gui.menu.gpMove(-1, 0);
+		else if(dRight) gui.menu.gpMove( 1, 0);
 		gpMenuMode = true;
 	    }
 	}
@@ -345,9 +367,13 @@ public class GamepadDispatcher {
 	if(r1 && !r1Prev) {
 	    r1PressTime = System.currentTimeMillis();
 	    r1WasHeld = false;
+	    // Snapshot: was FlowerMenu open when R1 was pressed?
+	    FlowerMenu fl0 = FlowerMenu.active;
+	    r1PressedWithFlower = (fl0 != null && fl0.parent != null);
 	}
 
-	if(r1 && !r1WasHeld) {
+	// Only start hold-timer (for RadialPicker) when FlowerMenu was NOT open at press time.
+	if(r1 && !r1WasHeld && !r1PressedWithFlower) {
 	    long held = System.currentTimeMillis() - r1PressTime;
 	    if(held >= cfg.r1HoldMs) {
 		r1WasHeld = true;
@@ -362,13 +388,17 @@ public class GamepadDispatcher {
 		currentPicker = null;
 		radialOpen = false;
 	    } else if(!r1WasHeld) {
-		smartClick(map);
+		FlowerMenu fl = FlowerMenu.active;
+		if(fl != null && fl.parent != null) {
+		    fl.gamepadConfirm();
+		} else if(!r1PressedWithFlower) {
+		    // Only smartClick when R1 was NOT pressed over an open FlowerMenu.
+		    // Prevents re-clicking the same object while the close animation plays
+		    // (choose() nulls FlowerMenu.active immediately, before the 0.75s animation ends).
+		    smartClick(map);
+		}
 	    }
 	}
-
-	// RS navigates open picker
-	if(radialOpen && currentPicker != null && cur.rsActive(cfg.mouseDeadZone))
-	    currentPicker.onStickAngle(cur.rsAngle());
 
 	// B cancels picker
 	if(radialOpen && currentPicker != null && cur.btnB && !prev.btnB) {

@@ -446,6 +446,15 @@ public class MenuGrid extends Widget implements KeyBinding.Bindable {
 		}
 	    }
 	    fstart = Utils.rtime();
+	    // Snap cursor to the first non-null cell if the current position became empty
+	    if(layout[gpX][gpY] == null) {
+		outer:
+		for(int y = 0; y < gsz.y; y++) {
+		    for(int x = 0; x < gsz.x; x++) {
+			if(layout[x][y] != null) { gpX = x; gpY = y; break outer; }
+		    }
+		}
+	    }
 	}
     }
 
@@ -557,6 +566,7 @@ public class MenuGrid extends Widget implements KeyBinding.Bindable {
     public void change(Pagina dst) {
 	this.cur = dst;
 	curoff = 0;
+	gpX = 0; gpY = 0;
 	if(dst == null)
 	    showkeys = false;
 	updlayout();
@@ -696,18 +706,25 @@ public class MenuGrid extends Widget implements KeyBinding.Bindable {
 	return((h == null) ? null : h.bind);
     }
 
-    /** Move the gamepad cursor, wrapping around and skipping empty cells in the chosen axis. */
+    /** Move the gamepad cursor, wrapping around and skipping empty cells. */
     public void gpMove(int dx, int dy) {
-	int nx = gpX, ny = gpY;
-	// Try up to gsz steps to find a non-null cell in the requested direction
-	int steps = (dx != 0) ? gsz.x : gsz.y;
-	for(int i = 0; i < steps; i++) {
-	    nx = ((nx + dx) % gsz.x + gsz.x) % gsz.x;
-	    ny = ((ny + dy) % gsz.y + gsz.y) % gsz.y;
-	    if(layout[nx][ny] != null) {
-		gpX = nx;
-		gpY = ny;
-		return;
+	if(dx != 0) {
+	    // Horizontal: stay in the same row, wrap within it
+	    for(int i = 1; i <= gsz.x; i++) {
+		int nx = ((gpX + dx * i) % gsz.x + gsz.x) % gsz.x;
+		if(layout[nx][gpY] != null) { gpX = nx; return; }
+	    }
+	} else {
+	    // Vertical: prefer the same column, expand outward if the target row is sparse
+	    for(int rowOff = 1; rowOff <= gsz.y; rowOff++) {
+		int ny = ((gpY + dy * rowOff) % gsz.y + gsz.y) % gsz.y;
+		if(layout[gpX][ny] != null) { gpY = ny; return; }
+		for(int spread = 1; spread < gsz.x; spread++) {
+		    int nxR = (gpX + spread) % gsz.x;
+		    if(layout[nxR][ny] != null) { gpX = nxR; gpY = ny; return; }
+		    int nxL = ((gpX - spread) % gsz.x + gsz.x) % gsz.x;
+		    if(layout[nxL][ny] != null) { gpX = nxL; gpY = ny; return; }
+		}
 	    }
 	}
     }

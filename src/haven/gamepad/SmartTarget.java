@@ -82,6 +82,7 @@ public class SmartTarget {
 
 	OCache oc = player.glob.oc;
 	List<Entry> result = new ArrayList<>();
+	double closeRadius = cfg.targetCloseRadiusTiles * TILE;
 
 	// Collect vehicle positions to detect bags near them
 	List<Coord2d> vehiclePositions = new ArrayList<>();
@@ -100,11 +101,13 @@ public class SmartTarget {
 		if(dist > maxDist || dist < 0.5)
 		    continue;
 
-		// Cone check
-		float gobAngle = (float) Math.atan2(dy, dx);
-		float angleDiff = angleDiff(gobAngle, gazeAngle);
-		if(Math.abs(angleDiff) > coneHalfRad)
-		    continue;
+		// Accept if within close radius OR within the directional cone
+		if(dist > closeRadius) {
+		    float gobAngle = (float) Math.atan2(dy, dx);
+		    float angleDiff = angleDiff(gobAngle, gazeAngle);
+		    if(Math.abs(angleDiff) > coneHalfRad)
+			continue;
+		}
 
 		String rn = resName(g);
 		int prio = priority(rn, g.rc, vehiclePositions, cfg.combatMode, combatLockId, g.id);
