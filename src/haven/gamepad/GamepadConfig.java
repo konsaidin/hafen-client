@@ -25,10 +25,10 @@ public class GamepadConfig {
     public float triggerThreshold = 0.5f;
 
     // Smart target
-    public float targetConeHalfDeg    = 30f;
+    public float targetConeHalfDeg    = 35f;
     public float targetConeDepthTiles = 7f;
     /** Objects within this radius are always targeted regardless of gaze direction. */
-    public float targetCloseRadiusTiles = 1.5f;
+    public float targetCloseRadiusTiles = 5f;
     /** Hold duration in ms before R1 opens RadialPicker instead of smart-clicking. */
     public long  r1HoldMs = 350;
 

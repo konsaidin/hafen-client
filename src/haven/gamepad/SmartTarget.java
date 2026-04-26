@@ -84,12 +84,12 @@ public class SmartTarget {
 	List<Entry> result = new ArrayList<>();
 	double closeRadius = cfg.targetCloseRadiusTiles * TILE;
 
-	// Collect vehicle positions to detect bags near them
+	// Collect vehicle/cart positions to detect bags near them
 	List<Coord2d> vehiclePositions = new ArrayList<>();
 	synchronized(oc) {
 	    for(Gob g : oc) {
 		String rn = resName(g);
-		if(rn != null && rn.contains("vehicle"))
+		if(rn != null && isVehicle(rn))
 		    vehiclePositions.add(g.rc);
 	    }
 
@@ -110,6 +110,10 @@ public class SmartTarget {
 		}
 
 		String rn = resName(g);
+		// DEBUG: dump every gob in range so we can identify doors/cart-bags
+		System.err.printf("SMARTDEBUG gob id=%d dist=%.1f rn=%s drawable=%s%n",
+		    g.id, dist, rn,
+		    g.getattr(Drawable.class) != null ? g.getattr(Drawable.class).getClass().getSimpleName() : "null");
 		int prio = priority(rn, g.rc, vehiclePositions, cfg.combatMode, combatLockId, g.id);
 		if(prio < 0) continue; // ignored
 
@@ -160,6 +164,10 @@ public class SmartTarget {
 	    if(dr instanceof ResDrawable) {
 		Resource res = ((ResDrawable) dr).rres;
 		return (res != null) ? res.name : null;
+	    } else if(dr instanceof Composite) {
+		// Buildings, carts, characters use Composite drawable; read base resource name.
+		Resource base = ((Composite) dr).baseres;
+		return (base != null) ? base.name : null;
 	    }
 	} catch(Exception e) {
 	    // Resource not yet loaded
@@ -195,7 +203,13 @@ public class SmartTarget {
     }
 
     private static boolean isDoor(String rn) {
-	return rn.contains("/gate") || rn.contains("/door");
+	// Check last path component so "palisadebiggate", "archway", etc. are matched
+	// even when they are the terminal segment (not a path prefix).
+	String part = rn.substring(rn.lastIndexOf('/') + 1);
+	return part.contains("gate")         // palisadegate, palisadebiggate, biggate…
+	    || part.contains("door")         // door, wooddoor…
+	    || rn.startsWith("gfx/terobjs/arch/")  // archways, building entrances
+	    || rn.startsWith("gfx/terobjs/cave");   // cave entrances (cave, caves/…)
     }
 
     private static boolean isLoot(String rn) {
@@ -217,9 +231,15 @@ public class SmartTarget {
 	return rn.startsWith("gfx/terobjs/") && !isContainer(rn) && !isDoor(rn) && !isLoot(rn);
     }
 
+    private static boolean isVehicle(String rn) {
+	return rn.contains("vehicle") || rn.contains("cart") || rn.contains("wagon")
+	    || rn.contains("wheelbarrow") || rn.contains("draught");
+    }
+
     private static boolean isContainer(String rn) {
 	return rn.contains("/chest") || rn.contains("/basket") || rn.contains("/crate")
-	    || rn.contains("/barrel") || rn.contains("/coffer");
+	    || rn.contains("/barrel") || rn.contains("/coffer")
+	    || rn.contains("sack") || rn.contains("/bag") || rn.contains("/pack");
     }
 
     private static boolean isAnimal(String rn) {
